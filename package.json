@@ -1,0 +1,29 @@
+{
+  "name": "pixel-picnic",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pictures": "bun scripts/build-pictures.ts",
+    "levels": "bun scripts/build-levels.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/nunito": "^5.3.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@iconify-json/fluent-emoji-flat": "^1.2.6",
+    "@iconify-json/twemoji": "^1.2.5",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^26.6.2",
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
+  }
+}

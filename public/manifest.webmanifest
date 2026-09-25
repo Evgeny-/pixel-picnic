@@ -1,0 +1,16 @@
+{
+  "name": "Pixel Picnic",
+  "short_name": "Pixel Picnic",
+  "description": "Feed a hungry ant colony: a cozy 3D puzzle where ants eat pixel-art pictures cube by cube.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#86c45b",
+  "theme_color": "#86c45b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

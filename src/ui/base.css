@@ -1,0 +1,14 @@
+:root {
+  --font: 'Nunito Variable', 'Nunito', system-ui, sans-serif;
+  --ink: #2b2140;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #86c45b; font-family: var(--font); color: var(--ink); overscroll-behavior: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+#app { position: fixed; inset: 0; }
+#stage { position: absolute; inset: 0; }
+#stage canvas.gl { display: block; position: absolute; inset: 0; }
+#ui { position: absolute; inset: 0; pointer-events: none; }
+#ui > * { pointer-events: auto; }
+#ui > .hud, #ui > .toast { pointer-events: none; }

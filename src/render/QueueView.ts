@@ -1,0 +1,421 @@
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { Where, type Sim } from '../core/sim';
+import { queuePos, type Layout } from './layout';
+import { LabelTexture, mysteryTexture } from './textures';
+import { roundedRectShape } from './BoardView';
+
+const BOX_H = 0.62;
+const MYSTERY = new THREE.Color('#9b94b3');
+const DIM = new THREE.Color('#8f8a7c');
+
+interface BoxVis {
+  id: number;
+  group: THREE.Group;
+  body: THREE.Mesh;
+  mat: THREE.MeshStandardMaterial;
+  label: LabelTexture;
+  labelMesh: THREE.Mesh;
+  ice: THREE.Mesh | null;
+  color: THREE.Color;
+  hiddenShown: boolean;
+  where: 'queue' | 'slot' | 'gone';
+  // motion
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  t: number;
+  dur: number;
+  arc: number;
+  shake: number;
+  flip: number;
+  pop: number;
+  bump: number;
+  hint: number;
+  fade: number;
+  row: number;
+}
+
+interface LinkVis {
+  a: number;
+  b: number;
+  mesh: THREE.Mesh;
+}
+
+/** Queue columns, slot tray and the ant boxes themselves. */
+export class QueueView {
+  readonly group = new THREE.Group();
+  private boxes = new Map<number, BoxVis>();
+  private links: LinkVis[] = [];
+  private readonly boxGeo = new RoundedBoxGeometry(1, BOX_H, 1, 3, 0.2);
+  private readonly iceGeo = new RoundedBoxGeometry(1.12, BOX_H * 1.25, 1.12, 2, 0.16);
+  private readonly labelGeo = new THREE.PlaneGeometry(1, 1);
+  private readonly iceMat = new THREE.MeshStandardMaterial({
+    color: '#cfefff',
+    transparent: true,
+    opacity: 0.62,
+    roughness: 0.08,
+    metalness: 0.05,
+    envMapIntensity: 1.6,
+    depthWrite: false,
+  });
+  private readonly linkMat = new THREE.MeshStandardMaterial({ color: '#8a5a32', roughness: 0.55, emissive: '#3a2210', emissiveIntensity: 0.25 });
+  private readonly linkGeo = new THREE.CylinderGeometry(0.15, 0.15, 1, 14, 1);
+  private readonly mysteryTex = mysteryTexture();
+  private tray: THREE.Group | null = null;
+  private readonly trayMat = new THREE.MeshStandardMaterial({ color: '#efd3a0', roughness: 0.62 });
+  private readonly padMat = new THREE.MeshStandardMaterial({ color: '#d9b67c', roughness: 0.85 });
+  private layout!: Layout;
+  private sim: Sim;
+  private colors: THREE.Color[];
+  private readonly tmp = new THREE.Vector3();
+  private readonly tmp2 = new THREE.Vector3();
+  private readonly up = new THREE.Vector3(0, 1, 0);
+  private slotPulse = 0;
+
+  constructor(sim: Sim, palette: string[]) {
+    this.sim = sim;
+    this.colors = palette.map((c) => new THREE.Color(c));
+    for (let id = 0; id < sim.boxIds; id++) {
+      if (sim.boxColor(id) < 0) continue;
+      this.boxes.set(id, this.makeBox(id));
+    }
+    const seen = new Set<number>();
+    for (let id = 0; id < sim.boxIds; id++) {
+      const l = sim.boxLink(id);
+      if (l < 0 || seen.has(l)) continue;
+      seen.add(l);
+      const g = sim.groupOf(id);
+      for (let k = 0; k + 1 < g.length; k++) {
+        const mesh = new THREE.Mesh(this.linkGeo, this.linkMat);
+        mesh.castShadow = true;
+        this.group.add(mesh);
+        this.links.push({ a: g[k], b: g[k + 1], mesh });
+      }
+    }
+  }
+
+  private makeBox(id: number): BoxVis {
+    const group = new THREE.Group();
+    const color = this.colors[this.sim.boxColor(id)];
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.38, metalness: 0, envMapIntensity: 1 });
+    const body = new THREE.Mesh(this.boxGeo, mat);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    body.position.y = BOX_H / 2;
+    body.userData.boxId = id;
+    group.add(body);
+    const label = new LabelTexture(128);
+    const labelMat = new THREE.MeshBasicMaterial({ map: label.texture, transparent: true, depthWrite: false });
+    const labelMesh = new THREE.Mesh(this.labelGeo, labelMat);
+    labelMesh.renderOrder = 5;
+    group.add(labelMesh);
+    let ice: THREE.Mesh | null = null;
+    if (this.sim.boxThawAt(id) > 0) {
+      ice = new THREE.Mesh(this.iceGeo, this.iceMat);
+      ice.position.y = (BOX_H * 1.25) / 2 - 0.02;
+      ice.renderOrder = 4;
+      group.add(ice);
+    }
+    this.group.add(group);
+    return {
+      id, group, body, mat, label, labelMesh, ice, color,
+      hiddenShown: false, where: 'queue',
+      from: new THREE.Vector3(), to: new THREE.Vector3(), t: 1, dur: 0.001, arc: 0,
+      shake: 0, flip: 0, pop: 0, bump: 0, hint: 0, fade: 1, row: 0,
+    };
+  }
+
+  setSim(sim: Sim): void {
+    this.sim = sim;
+  }
+
+  setLayout(l: Layout): void {
+    this.layout = l;
+    this.buildTray(l);
+    // label faces the camera
+    for (const b of this.boxes.values()) {
+      b.labelMesh.rotation.set(-(Math.PI / 2 - l.tilt), 0, 0);
+    }
+    this.syncFromSim(false);
+  }
+
+  private buildTray(l: Layout): void {
+    if (this.tray) {
+      this.group.remove(this.tray);
+      this.tray.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
+    const tray = new THREE.Group();
+    const n = l.slot.length;
+    const sp = n > 1 ? l.slot[1].x - l.slot[0].x : 1.6;
+    const cx = (l.slot[0].x + l.slot[n - 1].x) / 2;
+    const cz = l.slot[0].z;
+    const w = sp * (n - 1) + l.slotSize + 0.55;
+    const h = l.slotSize + 0.55;
+    const shape = roundedRectShape(cx - w / 2, -(cz + h / 2), w, h, 0.4);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.06, bevelSegments: 3, curveSegments: 8 });
+    geo.rotateX(-Math.PI / 2);
+    const plate = new THREE.Mesh(geo, this.trayMat);
+    plate.receiveShadow = true;
+    plate.castShadow = true;
+    tray.add(plate);
+    for (const s of l.slot) {
+      const pad = new THREE.Mesh(
+        new THREE.ShapeGeometry(roundedRectShape(s.x - l.slotSize / 2 - 0.04, -(s.z + l.slotSize / 2 + 0.04), l.slotSize + 0.08, l.slotSize + 0.08, 0.22), 6),
+        this.padMat,
+      );
+      pad.geometry.rotateX(-Math.PI / 2);
+      pad.position.y = 0.175;
+      pad.receiveShadow = true;
+      tray.add(pad);
+    }
+    this.tray = tray;
+    this.group.add(tray);
+  }
+
+  /** Target position for a box according to the simulation. */
+  private targetOf(id: number, out: THREE.Vector3): { where: BoxVis['where']; row: number } {
+    const w = this.sim.boxWhere[id];
+    if (w === Where.Queue) {
+      const col = this.sim.boxCol[id];
+      const row = this.sim.columns[col].indexOf(id);
+      const p = queuePos(this.layout, col, row);
+      out.set(p.x, 0, p.z);
+      return { where: 'queue', row };
+    }
+    if (w === Where.Slot) {
+      const s = this.sim.slots.findIndex((sl) => sl?.box === id);
+      const p = this.layout.slot[Math.max(0, s)];
+      out.set(p.x, 0.17, p.z);
+      return { where: 'slot', row: 0 };
+    }
+    return { where: 'gone', row: 0 };
+  }
+
+  /** Move every box towards where the simulation says it is. */
+  syncFromSim(animate = true): void {
+    for (const b of this.boxes.values()) {
+      const { where, row } = this.targetOf(b.id, this.tmp);
+      const wasGone = b.where === 'gone';
+      if (where === 'gone') {
+        if (b.where !== 'gone') {
+          b.where = 'gone';
+          if (!animate) b.group.visible = false;
+          else b.pop = Math.max(b.pop, 0.0001);
+        }
+        continue;
+      }
+      if (wasGone) {
+        b.group.visible = true;
+        b.pop = 0;
+      }
+      const moved = !b.to.equals(this.tmp) || b.where !== where;
+      b.row = row;
+      if (moved) {
+        b.from.copy(animate ? b.group.position : this.tmp);
+        b.to.copy(this.tmp);
+        b.t = 0;
+        const jump = where === 'slot' && b.where === 'queue';
+        b.dur = animate ? (jump ? 0.42 : 0.26) : 0.0001;
+        b.arc = jump ? 1.4 : 0;
+        if (!animate) b.group.position.copy(this.tmp);
+      }
+      b.where = where;
+    }
+    this.refreshLabels();
+  }
+
+  refreshLabels(): void {
+    for (const b of this.boxes.values()) this.refreshLabel(b);
+  }
+
+  private refreshLabel(b: BoxVis): void {
+    const hidden = this.sim.boxHidden[b.id] === 1;
+    const frozen = this.sim.isFrozen(b.id);
+    if (hidden) {
+      b.mat.color.copy(MYSTERY);
+      b.mat.map = this.mysteryTex;
+      b.mat.needsUpdate = b.hiddenShown === false;
+      b.hiddenShown = true;
+      b.label.draw('?', { fill: '#ffffff' });
+    } else {
+      if (b.hiddenShown) {
+        b.hiddenShown = false;
+        b.mat.map = null;
+        b.mat.needsUpdate = true;
+        b.flip = 1;
+      }
+      b.mat.color.copy(b.color);
+      if (frozen) b.label.draw(String(this.sim.frozenLeft(b.id)), { fill: '#e6f8ff', stroke: '#2b6f9e' });
+      else {
+        const sl = this.sim.slots.find((s) => s?.box === b.id);
+        const n = sl ? sl.left : this.sim.boxCount(b.id);
+        b.label.draw(String(n), { stroke: labelStroke(b.color) });
+      }
+    }
+    if (b.ice && !frozen && b.ice.visible) {
+      b.ice.visible = false;
+    }
+  }
+
+  /** Box ids under the pointer ray. */
+  pick(ray: THREE.Raycaster): number | null {
+    const meshes: THREE.Object3D[] = [];
+    for (const b of this.boxes.values()) if (b.where === 'queue' && b.group.visible && b.fade > 0.2) meshes.push(b.body);
+    const hit = ray.intersectObjects(meshes, false)[0];
+    if (hit) return hit.object.userData.boxId as number;
+    // Forgiving taps: nearest front box within a radius on the ground.
+    return null;
+  }
+
+  shake(id: number): void {
+    const b = this.boxes.get(id);
+    if (b) b.shake = 0.45;
+  }
+
+  bump(id: number): void {
+    const b = this.boxes.get(id);
+    if (b) b.bump = 0.25;
+  }
+
+  setHint(id: number | null): void {
+    for (const b of this.boxes.values()) b.hint = b.id === id ? Math.max(b.hint, 0.001) : 0;
+  }
+
+  pulseSlots(): void {
+    this.slotPulse = 1;
+  }
+
+  /** World position of the top of a box (for ants leaving it). */
+  boxTop(id: number, out: THREE.Vector3): THREE.Vector3 {
+    const b = this.boxes.get(id);
+    if (!b) return out.set(0, 0, 0);
+    // Use where the box is heading (a box flying into its slot already releases ants there).
+    const p = b.t < 1 ? b.to : b.group.position;
+    return out.copy(p).setY(p.y + BOX_H * this.layout.boxSize);
+  }
+
+  boxColor(id: number): THREE.Color {
+    return this.colors[this.sim.boxColor(id)];
+  }
+
+  isSettled(): boolean {
+    for (const b of this.boxes.values()) if (b.t < 1 || b.pop > 0) return false;
+    return true;
+  }
+
+  update(dt: number, time: number): void {
+    const l = this.layout;
+    const s = l.boxSize;
+    for (const b of this.boxes.values()) {
+      if (!b.group.visible) continue;
+      if (b.t < 1) {
+        b.t = Math.min(1, b.t + dt / b.dur);
+        const k = easeOutCubic(b.t);
+        b.group.position.lerpVectors(b.from, b.to, k);
+        b.group.position.y += Math.sin(b.t * Math.PI) * b.arc;
+        if (b.t >= 1 && b.arc > 0) b.bump = 0.22;
+      }
+      let sx = s;
+      let sy = s;
+      let sz = s;
+      if (b.bump > 0) {
+        b.bump = Math.max(0, b.bump - dt);
+        const k = b.bump / 0.22;
+        sy *= 1 - Math.sin(k * Math.PI) * 0.18;
+        sx *= 1 + Math.sin(k * Math.PI) * 0.1;
+        sz = sx;
+      }
+      let offX = 0;
+      if (b.shake > 0) {
+        b.shake = Math.max(0, b.shake - dt);
+        offX = Math.sin(b.shake * 55) * 0.09 * (b.shake / 0.45);
+      }
+      if (b.pop > 0) {
+        b.pop += dt;
+        const k = b.pop / 0.3;
+        const sc = k < 0.35 ? 1 + k * 0.5 : Math.max(0, 1.18 * (1 - (k - 0.35) / 0.65));
+        sx *= sc;
+        sy *= sc;
+        sz *= sc;
+        if (k >= 1) {
+          b.group.visible = false;
+          b.pop = 0;
+        }
+      }
+      if (b.hint > 0) {
+        b.hint += dt;
+        b.group.position.y = b.to.y + Math.abs(Math.sin(b.hint * 5)) * 0.35;
+      }
+      // rows beyond the visible range shrink and dim, deeper ones disappear
+      const targetFade = b.where !== 'queue' ? 1 : b.row < l.queueRowsVisible ? 1 : b.row === l.queueRowsVisible ? 0.5 : 0;
+      b.fade += (targetFade - b.fade) * Math.min(1, dt * 8);
+      const f = b.fade;
+      const fs = 0.55 + 0.45 * f;
+      b.group.scale.set(sx * fs, sy * fs, sz * fs);
+      if (b.where === 'gone' && b.pop === 0) {
+        b.group.visible = false;
+        continue;
+      }
+      b.group.visible = f > 0.05 || b.pop > 0;
+      b.body.position.x = offX;
+      b.labelMesh.position.set(offX, BOX_H + 0.06, 0.08);
+      b.labelMesh.visible = f > 0.75;
+      if (!b.hiddenShown) b.mat.color.copy(b.color).lerp(DIM, (1 - f) * 0.9);
+      if (b.flip > 0) {
+        b.flip = Math.max(0, b.flip - dt * 2.8);
+        b.body.rotation.x = (1 - easeOutCubic(1 - b.flip)) * Math.PI * 2 * (b.flip > 0 ? 1 : 0);
+      } else b.body.rotation.x = 0;
+      if (b.ice) {
+        b.ice.rotation.y = Math.sin(time * 1.3 + b.id) * 0.02;
+      }
+    }
+    for (const lk of this.links) {
+      const a = this.boxes.get(lk.a)!;
+      const b = this.boxes.get(lk.b)!;
+      const vis = a.group.visible && b.group.visible && a.where !== 'gone' && b.where !== 'gone' && a.fade > 0.3 && b.fade > 0.3;
+      lk.mesh.visible = vis;
+      if (!vis) continue;
+      this.tmp.copy(a.group.position).setY(a.group.position.y + BOX_H * s * 0.92);
+      this.tmp2.copy(b.group.position).setY(b.group.position.y + BOX_H * s * 0.92);
+      const len = this.tmp.distanceTo(this.tmp2);
+      lk.mesh.position.addVectors(this.tmp, this.tmp2).multiplyScalar(0.5);
+      lk.mesh.scale.set(s, Math.max(0.01, len - s * 0.5), s);
+      lk.mesh.quaternion.setFromUnitVectors(this.up, this.tmp2.sub(this.tmp).normalize());
+    }
+    if (this.slotPulse > 0) {
+      this.slotPulse = Math.max(0, this.slotPulse - dt * 0.7);
+      const k = Math.sin(this.slotPulse * Math.PI * 4) * this.slotPulse;
+      this.padMat.color.setRGB(0.85 + k * 0.15, 0.71 - k * 0.3, 0.49 - k * 0.3);
+    }
+  }
+
+  dispose(): void {
+    for (const b of this.boxes.values()) {
+      b.mat.dispose();
+      b.label.dispose();
+      (b.labelMesh.material as THREE.Material).dispose();
+    }
+    this.boxGeo.dispose();
+    this.iceGeo.dispose();
+    this.labelGeo.dispose();
+    this.iceMat.dispose();
+    this.linkMat.dispose();
+    this.linkGeo.dispose();
+    this.mysteryTex.dispose();
+    this.trayMat.dispose();
+    this.padMat.dispose();
+    this.tray?.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+  }
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/** Dark outline tinted by the box color keeps numbers readable on light boxes. */
+function labelStroke(c: THREE.Color): string {
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  const l = Math.min(0.24, hsl.l * 0.4);
+  return `hsl(${Math.round(hsl.h * 360)}, ${Math.round(Math.min(0.6, hsl.s) * 100)}%, ${Math.round(l * 100)}%)`;
+}

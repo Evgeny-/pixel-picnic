@@ -1,0 +1,63 @@
+name: Deploy to evgeny.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+    steps:
+      - name: Checkout game repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Checkout site repo
+        if: env.DEPLOY_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: evgenyio/evgenyio.github.io
+          token: ${{ secrets.DEPLOY_TOKEN }}
+          path: site
+
+      - name: Deploy to /games/pixel-picnic/
+        if: env.DEPLOY_TOKEN != ''
+        run: |
+          mkdir -p site/games/pixel-picnic
+          rm -rf site/games/pixel-picnic/*
+          cp -r dist/* site/games/pixel-picnic/
+
+      - name: Commit and push
+        if: env.DEPLOY_TOKEN != ''
+        run: |
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add games/pixel-picnic
+          if git diff --cached --quiet; then
+            echo "No changes to deploy"
+          else
+            git commit -m "Deploy pixel-picnic"
+            git push
+          fi
+
+      - name: Deploy skipped
+        if: env.DEPLOY_TOKEN == ''
+        run: echo "::notice::DEPLOY_TOKEN secret is not set, so the build was checked but not published."
