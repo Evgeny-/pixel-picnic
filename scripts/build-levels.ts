@@ -8,13 +8,14 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { PICTURES, type PictureEntry } from './pictures-manifest';
 import { renderEmojiRGBA } from './lib/emoji';
 import { pixelize, fillBackground, pickBackground, type PixelGrid } from './lib/pixelart';
-import { generateLevel, tierTarget } from '../src/core/generator';
+import { generateLevel, tierTarget, tuneLevel } from '../src/core/generator';
 import { LEVELS_PER_WORLD, planLevel, worldOf } from '../src/core/progression';
 import { encodeCells, tierForLevel, type LevelDef, type PictureDef } from '../src/core/types';
 import { Rng, hashString } from '../src/core/rng';
 
 const THEME_ORDER = ['meadow', 'forest', 'sea', 'sweets', 'space', 'winter', 'fantasy'] as const;
 const COUNT = Number(process.argv[2] ?? THEME_ORDER.length * LEVELS_PER_WORLD);
+const OUT = process.argv[3] ?? 'src/data/levels.json';
 const PATTERNS = ['sparkles', 'dots', 'none', 'stripes', 'sparkles', 'checker'] as const;
 
 const used = new Set<string>();
@@ -105,8 +106,15 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   let res = generateLevel(picture, params, target, n * 1013 + 7, tier === 'superhard' ? 36 : 26, 140);
   if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0 }, target, n * 1013 + 8, 40, 100);
   if (!res) return null;
+  const band = (v: number) => (v < target.casual[0] ? target.casual[0] - v : v > target.casual[1] ? v - target.casual[1] : 0);
+  if (band(res.diff.casual) > 0) {
+    // Fine-tune the queue layout with solver-checked local search.
+    const iters = tier === 'superhard' ? 180 : tier === 'hard' ? 140 : 60;
+    const tuned = tuneLevel(res.level, res.diff, target, n * 7717 + 3, iters, 90);
+    res = { ...res, level: tuned.level, diff: tuned.diff };
+  }
   const c = res.diff.casual;
-  const dist = c < target.casual[0] ? target.casual[0] - c : c > target.casual[1] ? c - target.casual[1] : 0;
+  const dist = band(c);
   const lv: LevelDef = {
     ...res.level,
     n,
@@ -146,5 +154,5 @@ for (let n = 1; n <= COUNT; n++) {
   );
 }
 mkdirSync('src/data', { recursive: true });
-writeFileSync('src/data/levels.json', JSON.stringify(levels));
+writeFileSync(OUT, JSON.stringify(levels));
 console.log(`wrote ${levels.length} levels in ${((performance.now() - t0) / 1000).toFixed(1)}s`);

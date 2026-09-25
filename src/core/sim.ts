@@ -5,13 +5,14 @@ import type { Rng } from './rng';
  * Deterministic game logic, shared by the game, the solver and the level generator.
  *
  * Rules:
- * - The picture is a grid of colored cubes. Ants enter through the open sides of the frame
- *   (bottom by default) and can only reach the first remaining cube along each line from an
- *   open side (e.g. the lowest cube of every column when only the bottom is open).
+ * - The picture is a grid of colored cubes inside a frame. Ants come in through the open sides of
+ *   the frame (bottom by default) and walk over free space: empty cells and cells whose cube has
+ *   already been eaten. A cube is reachable when an ant can walk up to it, i.e. it touches the
+ *   outside through an open side or touches free space connected to the outside.
  * - The player taps boxes at the front of the queue columns; a box moves into the leftmost free slot.
  * - Every dispatch round, each occupied slot (left to right) sends one ant to the best reachable
- *   cube of its color. The cube is claimed immediately (logically eaten), which may expose the
- *   next cube along that line. A box whose ants are all out frees its slot.
+ *   cube of its color (closest to an entrance). The cube is claimed immediately (logically eaten),
+ *   which may open a way to the cubes behind it. A box whose ants are all out frees its slot.
  * - The level is won when every cube is eaten. It is stuck when nothing can be dispatched and no
  *   box can be taken (typically: every slot holds a color with no reachable cube).
  */
@@ -24,7 +25,7 @@ export interface SlotState {
 }
 
 export type SimEvent =
-  | { t: 'ant'; slot: number; box: number; cell: number; color: number; left: number; side: Side }
+  | { t: 'ant'; slot: number; box: number; cell: number; color: number; left: number }
   | { t: 'boxDone'; slot: number; box: number }
   | { t: 'take'; box: number; slot: number; col: number; index: number; grabbed?: boolean }
   | { t: 'reveal'; box: number }
@@ -42,8 +43,12 @@ interface Shared {
   cell: Int16Array;
   zobA: Int32Array;
   zobB: Int32Array;
-  colCenter: Int16Array;
-  rowCenter: Int16Array;
+  /** Static preference of a cube: closest to an open side first, then closest to the middle. */
+  prio: Int32Array;
+  /** For border cells: bitmask of open sides they touch (1 bottom, 2 top, 4 left, 8 right). */
+  edge: Uint8Array;
+  /** Number of cubes of each color (heap capacity). */
+  colorCount: Int32Array;
   boxColor: Int16Array;
   boxCount: Int16Array;
   boxLink: Int16Array;
@@ -57,10 +62,16 @@ interface Shared {
 export class Sim {
   readonly s: Shared;
   eaten: Uint8Array;
+  /** Free cell (empty or eaten) connected to the outside. */
+  air: Uint8Array;
+  /** Uneaten cube an ant can walk up to. */
+  reach: Uint8Array;
+  /** Per color: binary min-heap of reachable cubes (lazy deletion of eaten ones). */
+  heaps: Int32Array[];
+  heapSize: Int32Array;
+  reachCount: Int32Array;
   remaining: Int32Array;
   left: number;
-  /** Per side (bottom, top, left, right): pointer per line to the first reachable cell coordinate, -1 if none. */
-  ptr: Int16Array[];
   boxHidden: Uint8Array;
   boxWhere: Uint8Array;
   boxCol: Int16Array;
@@ -74,9 +85,13 @@ export class Sim {
   private constructor(s: Shared) {
     this.s = s;
     this.eaten = new Uint8Array(0);
+    this.air = new Uint8Array(0);
+    this.reach = new Uint8Array(0);
+    this.heaps = [];
+    this.heapSize = new Int32Array(0);
+    this.reachCount = new Int32Array(0);
     this.remaining = new Int32Array(0);
     this.left = 0;
-    this.ptr = [];
     this.boxHidden = new Uint8Array(0);
     this.boxWhere = new Uint8Array(0);
     this.boxCol = new Int16Array(0);
@@ -104,10 +119,37 @@ export class Sim {
       seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
       zobB[i] = seed;
     }
-    const colCenter = new Int16Array(w);
-    for (let x = 0; x < w; x++) colCenter[x] = Math.floor(Math.abs(x - (w - 1) / 2) * 2);
-    const rowCenter = new Int16Array(h);
-    for (let y = 0; y < h; y++) rowCenter[y] = Math.floor(Math.abs(y - (h - 1) / 2) * 2);
+    const sides = level.sides.length ? level.sides.slice() : (['bottom'] as Side[]);
+    const open = SIDES.map((sd) => sides.includes(sd));
+
+    const prio = new Int32Array(n);
+    const edge = new Uint8Array(n);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        let depth = 1 << 20;
+        let center = 0;
+        const consider = (d: number, c: number) => {
+          if (d < depth || (d === depth && c < center)) {
+            depth = d;
+            center = c;
+          }
+        };
+        const cx = Math.round(Math.abs(x - (w - 1) / 2) * 2);
+        const cy = Math.round(Math.abs(y - (h - 1) / 2) * 2);
+        if (open[0]) consider(h - 1 - y, cx);
+        if (open[1]) consider(y, cx);
+        if (open[2]) consider(x, cy);
+        if (open[3]) consider(w - 1 - x, cy);
+        prio[i] = depth * 256 + center;
+        if (open[0] && y === h - 1) edge[i] |= 1;
+        if (open[1] && y === 0) edge[i] |= 2;
+        if (open[2] && x === 0) edge[i] |= 4;
+        if (open[3] && x === w - 1) edge[i] |= 8;
+      }
+
+    const colorCount = new Int32Array(colors);
+    for (let i = 0; i < n; i++) if (cell[i] >= 0) colorCount[cell[i]]++;
 
     const maxId = level.boxes.reduce((m, b) => Math.max(m, b.id), -1) + 1;
     const boxColor = new Int16Array(maxId).fill(-1);
@@ -126,30 +168,32 @@ export class Sim {
         else groups.set(b.link, [b.id]);
       }
     }
-    const sides = level.sides.length ? level.sides.slice() : (['bottom'] as Side[]);
-    const open = SIDES.map((sd) => sides.includes(sd));
 
     const sim = new Sim({
-      w, h, colors, cell, zobA, zobB, colCenter, rowCenter,
+      w, h, colors, cell, zobA, zobB, prio, edge, colorCount,
       boxColor, boxCount, boxLink, boxThaw, groups, sides, open,
     });
     sim.eaten = new Uint8Array(n);
-    sim.remaining = new Int32Array(colors);
+    sim.air = new Uint8Array(n);
+    sim.reach = new Uint8Array(n);
+    sim.heaps = Array.from({ length: colors }, (_, c) => new Int32Array(Math.max(1, colorCount[c])));
+    sim.heapSize = new Int32Array(colors);
+    sim.reachCount = new Int32Array(colors);
+    sim.remaining = Int32Array.from(colorCount);
+    sim.left = colorCount.reduce((a, b) => a + b, 0);
+    // Flood the free space from every open side.
+    const queue: number[] = [];
     for (let i = 0; i < n; i++) {
-      if (cell[i] >= 0) {
-        sim.remaining[cell[i]]++;
-        sim.left++;
-      }
+      if (!edge[i]) continue;
+      if (cell[i] < 0) {
+        if (!sim.air[i]) {
+          sim.air[i] = 1;
+          queue.push(i);
+        }
+      } else sim.markReach(i);
     }
-    sim.ptr = [new Int16Array(w), new Int16Array(w), new Int16Array(h), new Int16Array(h)];
-    for (let x = 0; x < w; x++) {
-      sim.ptr[0][x] = sim.scanCol(x, h - 1, -1);
-      sim.ptr[1][x] = sim.scanCol(x, 0, 1);
-    }
-    for (let y = 0; y < h; y++) {
-      sim.ptr[2][y] = sim.scanRow(0, y, 1);
-      sim.ptr[3][y] = sim.scanRow(w - 1, y, -1);
-    }
+    sim.flood(queue);
+
     sim.boxHidden = new Uint8Array(maxId);
     sim.boxWhere = new Uint8Array(maxId).fill(Where.Done);
     sim.boxCol = new Int16Array(maxId).fill(-1);
@@ -169,9 +213,17 @@ export class Sim {
   clone(): Sim {
     const c = new Sim(this.s);
     c.eaten = this.eaten.slice();
+    c.air = this.air.slice();
+    c.reach = this.reach.slice();
+    c.heaps = this.heaps.map((hp, k) => {
+      const copy = new Int32Array(hp.length);
+      copy.set(hp.subarray(0, this.heapSize[k]));
+      return copy;
+    });
+    c.heapSize = this.heapSize.slice();
+    c.reachCount = this.reachCount.slice();
     c.remaining = this.remaining.slice();
     c.left = this.left;
-    c.ptr = this.ptr.map((p) => p.slice());
     c.boxHidden = this.boxHidden.slice();
     c.boxWhere = this.boxWhere.slice();
     c.boxCol = this.boxCol.slice();
@@ -191,123 +243,135 @@ export class Sim {
 
   cellColor(i: number): number { return this.s.cell[i]; }
 
-  private scanCol(x: number, y: number, dy: number): number {
+  /** Free cell (no cube or eaten). */
+  isFree(i: number): boolean {
+    return this.s.cell[i] < 0 || this.eaten[i] === 1;
+  }
+
+  /** Bitmask of open sides a border cell touches. */
+  edgeMask(i: number): number {
+    return this.s.edge[i];
+  }
+
+  private less(a: number, b: number): boolean {
+    const pa = this.s.prio[a];
+    const pb = this.s.prio[b];
+    return pa < pb || (pa === pb && a < b);
+  }
+
+  private markReach(i: number): void {
+    if (this.reach[i]) return;
+    this.reach[i] = 1;
+    const color = this.s.cell[i];
+    this.reachCount[color]++;
+    // heap push
+    const hp = this.heaps[color];
+    let k = this.heapSize[color]++;
+    hp[k] = i;
+    while (k > 0) {
+      const p = (k - 1) >> 1;
+      if (!this.less(hp[k], hp[p])) break;
+      const t = hp[k];
+      hp[k] = hp[p];
+      hp[p] = t;
+      k = p;
+    }
+  }
+
+  private heapPop(color: number): void {
+    const hp = this.heaps[color];
+    const size = --this.heapSize[color];
+    if (size <= 0) return;
+    hp[0] = hp[size];
+    let k = 0;
+    for (;;) {
+      const l = k * 2 + 1;
+      const r = l + 1;
+      let m = k;
+      if (l < size && this.less(hp[l], hp[m])) m = l;
+      if (r < size && this.less(hp[r], hp[m])) m = r;
+      if (m === k) break;
+      const t = hp[k];
+      hp[k] = hp[m];
+      hp[m] = t;
+      k = m;
+    }
+  }
+
+  /** Spread "air" from the queued free cells and mark every cube it touches as reachable. */
+  private flood(queue: number[]): void {
     const { w, h, cell } = this.s;
-    for (; y >= 0 && y < h; y += dy) {
-      const i = y * w + x;
-      if (cell[i] >= 0 && !this.eaten[i]) return y;
+    for (let qi = 0; qi < queue.length; qi++) {
+      const i = queue[qi];
+      const x = i % w;
+      const y = (i - x) / w;
+      for (let d = 0; d < 4; d++) {
+        let nx = x;
+        let ny = y;
+        if (d === 0) ny++;
+        else if (d === 1) ny--;
+        else if (d === 2) nx--;
+        else nx++;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (cell[j] < 0 || this.eaten[j]) {
+          if (!this.air[j]) {
+            this.air[j] = 1;
+            queue.push(j);
+          }
+        } else this.markReach(j);
+      }
     }
-    return -1;
   }
 
-  private scanRow(x: number, y: number, dx: number): number {
-    const { w, cell } = this.s;
-    for (; x >= 0 && x < w; x += dx) {
-      const i = y * w + x;
-      if (cell[i] >= 0 && !this.eaten[i]) return x;
-    }
-    return -1;
-  }
-
-  /**
-   * Best reachable cell of `color`, encoded as cell*4 + sideIndex, or -1.
-   * Preference: shallowest cell (closest to its open edge), then lines closest to the center.
-   */
+  /** Best reachable cube of `color` (closest to an entrance), or -1. */
   findTarget(color: number): number {
-    const { w, h, cell, open, colCenter, rowCenter } = this.s;
-    let best = -1;
-    let bestPrio = 1 << 30;
-    if (open[0]) {
-      const p = this.ptr[0];
-      for (let x = 0; x < w; x++) {
-        const y = p[x];
-        if (y < 0) continue;
-        const i = y * w + x;
-        if (cell[i] !== color) continue;
-        const pr = (h - 1 - y) * 1000 + colCenter[x] * 4;
-        if (pr < bestPrio) { bestPrio = pr; best = i * 4; }
-      }
-    }
-    if (open[1]) {
-      const p = this.ptr[1];
-      for (let x = 0; x < w; x++) {
-        const y = p[x];
-        if (y < 0) continue;
-        const i = y * w + x;
-        if (cell[i] !== color) continue;
-        const pr = y * 1000 + colCenter[x] * 4 + 1;
-        if (pr < bestPrio) { bestPrio = pr; best = i * 4 + 1; }
-      }
-    }
-    if (open[2]) {
-      const p = this.ptr[2];
-      for (let y = 0; y < h; y++) {
-        const x = p[y];
-        if (x < 0) continue;
-        const i = y * w + x;
-        if (cell[i] !== color) continue;
-        const pr = x * 1000 + rowCenter[y] * 4 + 2;
-        if (pr < bestPrio) { bestPrio = pr; best = i * 4 + 2; }
-      }
-    }
-    if (open[3]) {
-      const p = this.ptr[3];
-      for (let y = 0; y < h; y++) {
-        const x = p[y];
-        if (x < 0) continue;
-        const i = y * w + x;
-        if (cell[i] !== color) continue;
-        const pr = (w - 1 - x) * 1000 + rowCenter[y] * 4 + 3;
-        if (pr < bestPrio) { bestPrio = pr; best = i * 4 + 3; }
-      }
-    }
-    return best;
+    const hp = this.heaps[color];
+    while (this.heapSize[color] > 0 && this.eaten[hp[0]]) this.heapPop(color);
+    return this.heapSize[color] > 0 ? hp[0] : -1;
   }
 
-  /** Number of distinct reachable cells per color (index = color). */
+  /** Number of reachable cubes per color (index = color). */
   exposedCounts(out?: Int32Array): Int32Array {
-    const { w, h, cell, open, colors } = this.s;
-    const res = out ?? new Int32Array(colors);
-    res.fill(0);
-    const seen = this.s.sides.length > 1 ? new Set<number>() : null;
-    const add = (i: number) => {
-      if (seen) {
-        if (seen.has(i)) return;
-        seen.add(i);
-      }
-      res[cell[i]]++;
-    };
-    if (open[0]) for (let x = 0; x < w; x++) { const y = this.ptr[0][x]; if (y >= 0) add(y * w + x); }
-    if (open[1]) for (let x = 0; x < w; x++) { const y = this.ptr[1][x]; if (y >= 0) add(y * w + x); }
-    if (open[2]) for (let y = 0; y < h; y++) { const x = this.ptr[2][y]; if (x >= 0) add(y * w + x); }
-    if (open[3]) for (let y = 0; y < h; y++) { const x = this.ptr[3][y]; if (x >= 0) add(y * w + x); }
+    const res = out ?? new Int32Array(this.s.colors);
+    res.set(this.reachCount);
     return res;
   }
 
-  /** List of currently reachable cell indices (deduplicated). */
+  /** Every reachable cube. */
   exposedCells(): number[] {
-    const { w, h, open } = this.s;
-    const set = new Set<number>();
-    if (open[0]) for (let x = 0; x < w; x++) { const y = this.ptr[0][x]; if (y >= 0) set.add(y * w + x); }
-    if (open[1]) for (let x = 0; x < w; x++) { const y = this.ptr[1][x]; if (y >= 0) set.add(y * w + x); }
-    if (open[2]) for (let y = 0; y < h; y++) { const x = this.ptr[2][y]; if (x >= 0) set.add(y * w + x); }
-    if (open[3]) for (let y = 0; y < h; y++) { const x = this.ptr[3][y]; if (x >= 0) set.add(y * w + x); }
-    return [...set];
+    const res: number[] = [];
+    for (let i = 0; i < this.reach.length; i++) if (this.reach[i]) res.push(i);
+    return res;
   }
 
   eatCell(i: number): void {
-    const { w, cell, open, zobA, zobB } = this.s;
+    const { w, h, cell, zobA, zobB, edge } = this.s;
+    if (this.eaten[i] || cell[i] < 0) return;
     this.eaten[i] = 1;
-    this.remaining[cell[i]]--;
+    const color = cell[i];
+    this.remaining[color]--;
     this.left--;
     this.hashA ^= zobA[i];
     this.hashB ^= zobB[i];
+    if (this.reach[i]) {
+      this.reach[i] = 0;
+      this.reachCount[color]--;
+    }
+    // The freed cell joins the air if it touches the outside or existing air.
     const x = i % w;
     const y = (i - x) / w;
-    if (open[0] && this.ptr[0][x] === y) this.ptr[0][x] = this.scanCol(x, y - 1, -1);
-    if (open[1] && this.ptr[1][x] === y) this.ptr[1][x] = this.scanCol(x, y + 1, 1);
-    if (open[2] && this.ptr[2][y] === x) this.ptr[2][y] = this.scanRow(x + 1, y, 1);
-    if (open[3] && this.ptr[3][y] === x) this.ptr[3][y] = this.scanRow(x - 1, y, -1);
+    let connected = edge[i] !== 0;
+    if (!connected) {
+      if (y + 1 < h && this.air[i + w]) connected = true;
+      else if (y > 0 && this.air[i - w]) connected = true;
+      else if (x > 0 && this.air[i - 1]) connected = true;
+      else if (x + 1 < w && this.air[i + 1]) connected = true;
+    }
+    if (connected && !this.air[i]) {
+      this.air[i] = 1;
+      this.flood([i]);
+    }
   }
 
   // ---------------------------------------------------------------- boxes
@@ -486,13 +550,12 @@ export class Sim {
       const sl = this.slots[s];
       if (!sl) continue;
       const color = this.s.boxColor[sl.box];
-      const t = this.findTarget(color);
-      if (t < 0) continue;
-      const cell = t >> 2;
+      const cell = this.findTarget(color);
+      if (cell < 0) continue;
       this.eatCell(cell);
       sl.left--;
       sent++;
-      ev?.push({ t: 'ant', slot: s, box: sl.box, cell, color, left: sl.left, side: SIDES[t & 3] });
+      ev?.push({ t: 'ant', slot: s, box: sl.box, cell, color, left: sl.left });
       if (sl.left <= 0) {
         this.slots[s] = null;
         this.boxWhere[sl.box] = Where.Done;

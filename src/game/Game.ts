@@ -121,6 +121,25 @@ export class Game {
     return true;
   }
 
+  /**
+   * Debug auto-play: when the colony is idle, ask the solver for the next move and take it.
+   * Returns 'moved', 'wait' (ants still busy) or 'stuck' (no solution from here).
+   */
+  autoStep(): 'moved' | 'wait' | 'stuck' | 'done' {
+    if (this.finished === 'won' || this.sim.status === 'won') return 'done';
+    if (this.paused || !this.sim.isQuiet()) return 'wait';
+    const probe = this.sim.clone();
+    probe.unstick();
+    probe.settle();
+    const res = solve(probe, 20000);
+    if (res.status !== 'solved' || !res.moves.length) return res.status === 'solved' ? 'done' : 'stuck';
+    if (this.finished === 'stuck') {
+      this.finished = null;
+      this.sim.unstick();
+    }
+    return this.takeBox(res.moves[0]) ? 'moved' : 'wait';
+  }
+
   private hoverId: number | null = null;
 
   /** Desktop hover: lift the cubes the hovered box's ants could reach right now. Returns the box id. */

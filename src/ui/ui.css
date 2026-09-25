@@ -316,6 +316,26 @@ button { font-family: var(--font); cursor: pointer; }
 .album-card.missing .pic { font-size: 40px; font-weight: 900; color: #e4d3b6; background: repeating-linear-gradient(45deg, #f6efe3 0 10px, #f1e6d3 10px 20px); }
 .album-card .nm { display: block; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ------------------------------------------------------------------ debug */
+.debug-list { background: linear-gradient(180deg, #e9f2ff, #d6e4ff); }
+.debug-list h2 { color: #2d3b6b; }
+.debug-legend { margin: 4px 6px 0; font-size: 13px; font-weight: 700; color: #4a5a8a; }
+.debug-pill { font-size: 16px; gap: 8px; }
+.debug-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.debug-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 0; border-radius: 16px; background: #fff; text-align: left; color: #2b2140; box-shadow: 0 4px 0 #b9c7e6, 0 8px 14px rgba(0,0,0,.08); font-family: var(--font); }
+.debug-card:active { transform: translateY(3px); box-shadow: 0 1px 0 #b9c7e6; }
+.debug-card.hard { box-shadow: 0 4px 0 #f0a07a, 0 8px 14px rgba(0,0,0,.08); }
+.debug-card.superhard { box-shadow: 0 4px 0 #b28cf0, 0 8px 14px rgba(0,0,0,.08); }
+.debug-card .pic { aspect-ratio: 1; display: grid; place-items: center; border-radius: 10px; background: #f3f5fb; overflow: hidden; }
+.debug-card .pic canvas { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+.debug-head { font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.debug-stats { font-size: 11.5px; font-weight: 700; line-height: 1.35; color: #4a4560; }
+.tier-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; background: #7bd36a; }
+.tier-dot.hard { background: #f0642e; }
+.tier-dot.superhard { background: #7a3cf0; }
+.node .dbg { position: absolute; top: calc(100% + 14px); left: 50%; transform: translateX(-50%); padding: 1px 6px; border-radius: 8px; background: rgba(20, 20, 40, 0.72); color: #fff; font-size: 11px; font-weight: 800; white-space: nowrap; text-shadow: none; }
+.hud-debug { margin-top: 4px; font-size: 11px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); white-space: nowrap; }
+
 /* ------------------------------------------------------------------ loading */
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: linear-gradient(180deg, #bfe9ff, #9edc6f); z-index: 50; transition: opacity 0.4s; }
 .loading.out { opacity: 0; pointer-events: none; }

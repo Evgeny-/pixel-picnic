@@ -5,7 +5,7 @@ import { THEMES, themeForWorld } from '../render/themes';
 import { paintGround } from '../render/groundPainter';
 import { pictureCanvas } from './pictureCanvas';
 import { LEVELS_PER_WORLD, worldOf } from '../core/progression';
-import { tierForLevel, type PictureDef } from '../core/types';
+import { tierForLevel, type LevelStats, type PictureDef } from '../core/types';
 import type { EmojiName } from './emoji.generated';
 import { audio } from '../audio/audio';
 
@@ -15,12 +15,15 @@ export interface MapData {
   coins: number;
   total: number;
   picture(n: number): PictureDef | null;
+  debug: boolean;
+  stats(n: number): LevelStats | undefined;
 }
 
 export interface MapCallbacks {
   onPlay(n: number): void;
   onSettings(): void;
   onAlbum(): void;
+  onDebug(): void;
 }
 
 const STEP = 112;
@@ -57,6 +60,7 @@ export class MapScreen {
   private inner: HTMLElement;
   private coinsEl: HTMLElement;
   private playBtn: HTMLButtonElement;
+  private debugBtn: HTMLButtonElement;
   private cb: MapCallbacks;
   private data!: MapData;
   private width = 400;
@@ -82,7 +86,13 @@ export class MapScreen {
       audio.play('button');
       cb.onSettings();
     });
-    const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, album, settings));
+    this.debugBtn = h('button', { class: 'btn round white hidden', html: emoji('lady-beetle', 30), attrs: { 'aria-label': t('debugLevels') } });
+    this.debugBtn.addEventListener('click', () => {
+      audio.unlock();
+      audio.play('button');
+      cb.onDebug();
+    });
+    const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, this.debugBtn, album, settings));
     this.playBtn = button('', 'big green', () => this.cb.onPlay(this.data.unlocked));
     const dock = h('div', { class: 'play-dock' }, this.playBtn);
     this.el.append(this.scroll, top, dock);
@@ -122,8 +132,9 @@ export class MapScreen {
   render(): void {
     const d = this.data;
     this.refreshTop();
+    this.debugBtn.classList.toggle('hidden', !d.debug);
     this.playBtn.innerHTML = `${lineIcon('play', 26)} ${t('level', { n: d.unlocked })}`;
-    const shown = Math.max(d.unlocked + 6, Math.min(d.total, LEVELS_PER_WORLD));
+    const shown = d.debug ? Math.max(d.total, d.unlocked + 6) : Math.max(d.unlocked + 6, Math.min(d.total, LEVELS_PER_WORLD));
     const worlds = worldOf(shown) + 1;
     const levels = Math.min(worlds * LEVELS_PER_WORLD, Math.max(shown, 1));
     this.width = Math.min(520, window.innerWidth);
@@ -202,7 +213,7 @@ export class MapScreen {
       const tier = tierForLevel(n);
       const done = (d.stars[n] ?? 0) > 0;
       const current = n === d.unlocked;
-      const locked = n > d.unlocked;
+      const locked = n > d.unlocked && !d.debug;
       const node = h('button', {
         class: `node ${tier}` + (done ? ' done' : '') + (current ? ' current' : '') + (locked ? ' locked' : ''),
         attrs: { 'aria-label': t('level', { n }) },
@@ -221,6 +232,10 @@ export class MapScreen {
       }
       if (!locked && tier !== 'normal') node.append(h('span', { class: 'badge', html: emoji(tier === 'superhard' ? 'skull' : 'fire', 26) }));
       if (locked && n === d.unlocked + 1) node.append(h('span', { class: 'lockico', html: emoji('locked', 22) }));
+      if (d.debug) {
+        const st = d.stats(n);
+        if (st) node.append(h('span', { class: 'dbg', text: `c${Math.round(st.casual * 100)} g${Math.round(st.greedy * 100)}` }));
+      }
       node.addEventListener('click', () => {
         audio.unlock();
         if (locked) {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import type { Side } from '../core/types';
+import type { Sim } from '../core/sim';
 import type { Layout } from './layout';
 import type { BoardView } from './BoardView';
 
@@ -61,7 +61,6 @@ export interface AntCallbacks {
 interface Ant {
   color: number;
   cell: number;
-  side: Side;
   /** Waypoints (x, z) */
   pts: number[];
   cum: number[];
@@ -79,6 +78,10 @@ interface Ant {
   z: number;
   y: number;
   scale: number;
+  /** Seconds spent waiting behind a cube that is still there. */
+  wait: number;
+  /** Number of waypoints (at the end of `pts`) inside the frame, walked back on the way home. */
+  back: number;
 }
 
 const HIP_Z = [0.15, 0.07, -0.01];
@@ -108,9 +111,13 @@ export class AntsView {
   private readonly one = new THREE.Vector3(1, 1, 1);
   private antSize = 0.42;
   private rect = { x0: 0, x1: 0, z0: 0, z1: 0, ix0: 0, ix1: 0, iz0: 0, iz1: 0, rim: 0.2 };
+  private sim: Sim;
+  private bfsDist = new Int32Array(0);
+  private bfsPrev = new Int32Array(0);
 
-  constructor(palette: string[], board: BoardView, cb: AntCallbacks) {
+  constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks) {
     this.board = board;
+    this.sim = sim;
     this.cb = cb;
     this.palette = palette.map((c) => new THREE.Color(c));
     this.legColors = this.palette.map((c) => {
@@ -195,7 +202,7 @@ export class AntsView {
     }
   }
 
-  spawn(from: THREE.Vector3, cell: number, side: Side, color: number): void {
+  spawn(from: THREE.Vector3, cell: number, color: number): void {
     if (this.ants.length >= MAX_ANTS) {
       // Too many ants on screen: resolve instantly.
       this.board.remove(cell);
@@ -204,58 +211,198 @@ export class AntsView {
       return;
     }
     const seed = Math.random();
-    const l = this.layout;
-    const w = Math.round(l.picW / l.cell);
-    const cx = cell % w;
-    const cy = (cell - cx) / w;
-    const target = { x: l.picX0 + (cx + 0.5) * l.cell, z: l.picZ0 + (cy + 0.5) * l.cell };
-    const { entry, approach, line, lineD } = this.approachFor(cx, cy, side, target, w);
-    const pts: number[] = [from.x + (seed - 0.5) * 0.3, from.z + 0.2];
-    this.route(pts, entry.x, entry.z);
-    pts.push(approach.x, approach.z);
+    const sx = from.x + (seed - 0.5) * 0.3;
+    const sz = from.z + 0.2;
+    const plan = this.planInside(cell, sx, sz);
+    const pts: number[] = [sx, sz];
+    this.route(pts, plan.inside[0], plan.inside[1]);
+    const entryIndex = pts.length / 2 - 1;
+    for (let k = 2; k < plan.inside.length; k += 2) pts.push(plan.inside[k], plan.inside[k + 1]);
     const ant: Ant = {
-      color, cell, side, pts, cum: [], dist: 0, phase: 'out', timer: 0, yaw: Math.PI, legPhase: seed * 6,
-      startY: from.y, seed, line, lineD, x: pts[0], z: pts[1], y: from.y, scale: 0.2,
+      color, cell, pts, cum: [], dist: 0, phase: 'out', timer: 0, yaw: Math.PI, legPhase: seed * 6,
+      startY: from.y, seed, line: plan.block, lineD: [], x: pts[0], z: pts[1], y: from.y, scale: 0.2,
+      wait: 0, back: plan.inside.length / 2,
     };
     this.measure(ant);
-    // line distances are measured from the entry point, convert to path distance
-    const entryDist = ant.cum[ant.cum.length - 2];
-    ant.lineD = lineD.map((d) => entryDist + d);
+    // Blocking distances were measured along the inside part; shift them to the full path.
+    const entryDist = ant.cum[entryIndex];
+    ant.lineD = plan.blockD.map((d) => entryDist + d);
     this.ants.push(ant);
   }
 
-  private approachFor(cx: number, cy: number, side: Side, target: { x: number; z: number }, w: number) {
+  private cellXZ(i: number, out: { x: number; z: number }): { x: number; z: number } {
     const l = this.layout;
+    const w = this.sim.w;
+    const x = i % w;
+    out.x = l.picX0 + (x + 0.5) * l.cell;
+    out.z = l.picZ0 + ((i - x) / w + 0.5) * l.cell;
+    return out;
+  }
+
+  /** Point just outside the frame where an ant enters to reach border cell `i` through `side` bit. */
+  private exitPoint(i: number, bit: number): { x: number; z: number } {
+    const p = this.cellXZ(i, { x: 0, z: 0 });
     const r = this.rect;
-    const h = Math.round(l.picH / l.cell);
-    const line: number[] = [];
-    const lineD: number[] = [];
-    let entry: { x: number; z: number };
-    let approach: { x: number; z: number };
-    const jitter = (Math.random() - 0.5) * l.cell * 0.3;
-    const reach = l.cell * 0.5 + this.antSize * 0.5;
-    if (side === 'bottom') {
-      entry = { x: target.x + jitter, z: r.z1 + 0.25 };
-      approach = { x: target.x + jitter, z: Math.min(entry.z, target.z + reach) };
-      for (let y = h - 1; y > cy; y--) line.push(y * w + cx);
-      line.forEach((c) => lineD.push(entry.z - (l.picZ0 + (Math.floor(c / w) + 1) * l.cell) - reach + l.cell * 0.5));
-    } else if (side === 'top') {
-      entry = { x: target.x + jitter, z: r.z0 - 0.25 };
-      approach = { x: target.x + jitter, z: Math.max(entry.z, target.z - reach) };
-      for (let y = 0; y < cy; y++) line.push(y * w + cx);
-      line.forEach((c) => lineD.push(l.picZ0 + Math.floor(c / w) * l.cell - entry.z - reach + l.cell * 0.5));
-    } else if (side === 'left') {
-      entry = { x: r.x0 - 0.25, z: target.z + jitter };
-      approach = { x: Math.max(entry.x, target.x - reach), z: target.z + jitter };
-      for (let x = 0; x < cx; x++) line.push(cy * w + x);
-      line.forEach((c) => lineD.push(l.picX0 + (c % w) * l.cell - entry.x - reach + l.cell * 0.5));
-    } else {
-      entry = { x: r.x1 + 0.25, z: target.z + jitter };
-      approach = { x: Math.min(entry.x, target.x + reach), z: target.z + jitter };
-      for (let x = w - 1; x > cx; x--) line.push(cy * w + x);
-      line.forEach((c) => lineD.push(entry.x - (l.picX0 + ((c % w) + 1) * l.cell) - reach + l.cell * 0.5));
+    if (bit === 1) p.z = r.z1 + 0.25;
+    else if (bit === 2) p.z = r.z0 - 0.25;
+    else if (bit === 4) p.x = r.x0 - 0.25;
+    else p.x = r.x1 + 0.25;
+    return p;
+  }
+
+  /**
+   * Path inside the frame to a cube: breadth-first search from the cube over free cells to an
+   * open side, preferring entrances close to where the ant starts, then smoothed into straight
+   * runs. Returns world waypoints (entrance first) and the cells an ant must wait for.
+   */
+  private planInside(target: number, sx: number, sz: number): { inside: number[]; block: number[]; blockD: number[] } {
+    const sim = this.sim;
+    const w = sim.w;
+    const h = sim.h;
+    const n = w * h;
+    const l = this.layout;
+    const cellSize = l.cell;
+    if (this.bfsDist.length !== n) {
+      this.bfsDist = new Int32Array(n);
+      this.bfsPrev = new Int32Array(n);
     }
-    return { entry, approach, line, lineD };
+    const dist = this.bfsDist.fill(-1);
+    const prev = this.bfsPrev;
+    const free = (i: number) => sim.isFree(i) && sim.air[i] === 1;
+    let bestCost = Infinity;
+    let bestCell = -1;
+    let bestBit = 0;
+    const tryExit = (i: number, d: number) => {
+      const mask = sim.edgeMask(i);
+      for (const bit of [1, 2, 4, 8]) {
+        if (!(mask & bit)) continue;
+        const e = this.exitPoint(i, bit);
+        const cost = d * cellSize + Math.hypot(e.x - sx, e.z - sz) * 0.8;
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestCell = i;
+          bestBit = bit;
+        }
+      }
+    };
+    dist[target] = 0;
+    tryExit(target, 0);
+    const queue = [target];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const c = queue[qi];
+      const x = c % w;
+      const y = (c - x) / w;
+      for (let d = 0; d < 4; d++) {
+        const nx = d === 2 ? x - 1 : d === 3 ? x + 1 : x;
+        const ny = d === 0 ? y + 1 : d === 1 ? y - 1 : y;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (dist[j] >= 0 || !free(j)) continue;
+        dist[j] = dist[c] + 1;
+        prev[j] = c;
+        tryExit(j, dist[j]);
+        queue.push(j);
+      }
+    }
+    const tp = this.cellXZ(target, { x: 0, z: 0 });
+    const reach = cellSize * 0.5 + this.antSize * 0.4;
+    const pts: number[] = [];
+    if (bestCell < 0) {
+      // Should not happen (the rules said the cube is reachable): walk straight from below.
+      pts.push(tp.x, this.rect.z1 + 0.25, tp.x, tp.z + reach);
+      return { inside: pts, block: [], blockD: [] };
+    }
+    const e = this.exitPoint(bestCell, bestBit);
+    const jitter = (Math.random() - 0.5) * cellSize * 0.35;
+    const vertical = bestBit === 1 || bestBit === 2;
+    pts.push(e.x + (vertical ? jitter : 0), e.z + (vertical ? 0 : jitter));
+    // cell chain from the entrance towards the target
+    const chain: number[] = [];
+    for (let c = bestCell; c !== target; c = prev[c]) chain.push(c);
+    const tmp = { x: 0, z: 0 };
+    for (const c of chain) {
+      this.cellXZ(c, tmp);
+      pts.push(tmp.x, tmp.z);
+    }
+    // approach point: next to the cube, on the side the ant comes from
+    const fromX = chain.length ? pts[pts.length - 2] : e.x;
+    const fromZ = chain.length ? pts[pts.length - 1] : e.z;
+    let dx = fromX - tp.x;
+    let dz = fromZ - tp.z;
+    const len = Math.hypot(dx, dz) || 1;
+    dx /= len;
+    dz /= len;
+    pts.push(tp.x + dx * reach, tp.z + dz * reach);
+    const smooth = this.smoothPath(pts, target);
+    const { block, blockD } = this.blockingCells(smooth, target);
+    return { inside: smooth, block, blockD };
+  }
+
+  /** Is the segment walkable: every sampled point inside the picture lies on free space? */
+  private walkable(ax: number, az: number, bx: number, bz: number, target: number): boolean {
+    const l = this.layout;
+    const w = this.sim.w;
+    const h = this.sim.h;
+    const len = Math.hypot(bx - ax, bz - az);
+    const steps = Math.max(1, Math.ceil(len / (l.cell * 0.3)));
+    for (let k = 1; k < steps; k++) {
+      const t = k / steps;
+      const x = Math.floor((ax + (bx - ax) * t - l.picX0) / l.cell);
+      const y = Math.floor((az + (bz - az) * t - l.picZ0) / l.cell);
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const i = y * w + x;
+      if (i === target) continue;
+      if (!this.sim.isFree(i) || !this.sim.air[i]) return false;
+    }
+    return true;
+  }
+
+  /** Greedy string pulling: skip waypoints while the straight line stays in free space. */
+  private smoothPath(pts: number[], target: number): number[] {
+    const m = pts.length / 2;
+    if (m <= 2) return pts;
+    const out = [pts[0], pts[1]];
+    let i = 0;
+    while (i < m - 1) {
+      let j = Math.min(m - 1, i + 14);
+      while (j > i + 1 && !this.walkable(pts[i * 2], pts[i * 2 + 1], pts[j * 2], pts[j * 2 + 1], target)) j--;
+      out.push(pts[j * 2], pts[j * 2 + 1]);
+      i = j;
+    }
+    return out;
+  }
+
+  /** Cubes along the path that may still physically be there (claimed by other ants). */
+  private blockingCells(pts: number[], target: number): { block: number[]; blockD: number[] } {
+    const l = this.layout;
+    const w = this.sim.w;
+    const h = this.sim.h;
+    const block: number[] = [];
+    const blockD: number[] = [];
+    const seen = new Set<number>();
+    let acc = 0;
+    const margin = this.antSize * 0.45;
+    for (let k = 0; k + 3 < pts.length; k += 2) {
+      const ax = pts[k];
+      const az = pts[k + 1];
+      const bx = pts[k + 2];
+      const bz = pts[k + 3];
+      const len = Math.hypot(bx - ax, bz - az);
+      const steps = Math.max(1, Math.ceil(len / (l.cell * 0.25)));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const x = Math.floor((ax + (bx - ax) * t - l.picX0) / l.cell);
+        const y = Math.floor((az + (bz - az) * t - l.picZ0) / l.cell);
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const i = y * w + x;
+        if (i === target || seen.has(i) || this.sim.cellColor(i) < 0) continue;
+        seen.add(i);
+        block.push(i);
+        blockD.push(Math.max(0, acc + len * t - margin));
+      }
+      acc += len;
+    }
+    return { block, blockD };
   }
 
   /** Append waypoints from the last point to (x, z), walking around the frame and the queue. */
@@ -352,14 +499,17 @@ export class AntsView {
     a.z = a.pts[(i - 1) * 2 + 1] + (a.pts[i * 2 + 1] - a.pts[(i - 1) * 2 + 1]) * k;
   }
 
+  /** Swap the simulation (undo / shuffle); paths are planned on its free space. */
+  setSim(sim: Sim): void {
+    this.sim = sim;
+  }
+
   private goHome(a: Ant): void {
     const l = this.layout;
-    const last = a.pts.length;
-    const px = a.pts[last - 2];
-    const pz = a.pts[last - 1];
-    const entryX = a.pts[last - 4];
-    const entryZ = a.pts[last - 3];
-    const pts = [px, pz, entryX, entryZ];
+    // Walk back out the same way the ant came in, then around to the nest.
+    const pts: number[] = [];
+    const first = Math.max(0, a.pts.length / 2 - Math.max(2, a.back));
+    for (let k = a.pts.length / 2 - 1; k >= first; k--) pts.push(a.pts[k * 2], a.pts[k * 2 + 1]);
     const nx = l.nest.x + (Math.random() - 0.5) * 0.25;
     const nz = l.nest.z + (Math.random() - 0.5) * 0.15;
     this.route(pts, nx, nz);
@@ -381,7 +531,7 @@ export class AntsView {
       if (a.phase === 'out' || a.phase === 'home') {
         const total = a.cum[a.cum.length - 1];
         let limit = total;
-        // Wait behind cubes that are still in the way on the final approach.
+        // Wait behind cubes that are still in the way (claimed by other ants, not carried off yet).
         for (let k = 0; k < a.line.length; k++) {
           if (this.board.isPresent(a.line[k])) {
             limit = Math.min(limit, a.lineD[k] - 0.05);
@@ -392,6 +542,11 @@ export class AntsView {
         a.dist = Math.min(limit, a.dist + spd * dt * (0.9 + a.seed * 0.2));
         if (a.dist < before) a.dist = before;
         moving = a.dist > before + 1e-5;
+        if (!moving && a.dist < total - 1e-4) {
+          // Two ants waiting for each other's cube would wait forever: squeeze past after a while.
+          a.wait += dt * this.speed;
+          if (a.wait > 1.4) a.line = [];
+        } else a.wait = 0;
         this.posAt(a, a.dist);
         if (a.dist >= total - 1e-4) {
           if (a.phase === 'out') {

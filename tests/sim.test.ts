@@ -52,6 +52,35 @@ describe('Sim', () => {
     expect(exp[1]).toBe(4);
   });
 
+  it('ants can walk through free space to reach cubes from the side', () => {
+    // A=0, B=1, '.' = empty. Row 0 is the top row.
+    //   A A A
+    //   A . A
+    //   A . B
+    const pic: PictureDef = { id: 'cave', w: 3, h: 3, palette: ['#f00', '#00f'], cells: 'AAA'.replace(/A/g, '0') + '0.0' + '0.1' };
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }, { id: 1, color: 1, count: 1 }], [[0], [1]], 2, ['bottom'], pic));
+    const exp = sim.exposedCounts();
+    // Through the empty corridor the ants reach (0,2), (0,1), (2,1) and (1,0).
+    expect(exp[0]).toBe(4);
+    expect(exp[1]).toBe(1);
+    sim.take(0);
+    sim.settle();
+    // Eating those opens the rest: all six A cubes get eaten.
+    expect(sim.remaining[0]).toBe(0);
+  });
+
+  it('eating a cube opens the cubes around it, not only the one behind', () => {
+    // bottom row: B B B, middle: A A A, top: A A A (bottom open)
+    const pic: PictureDef = { id: 'rows', w: 3, h: 3, palette: ['#f00', '#00f'], cells: '000' + '000' + '111' };
+    const sim = Sim.fromLevel(level([{ id: 0, color: 1, count: 1 }], [[0]], 1, ['bottom'], pic));
+    sim.take(0);
+    sim.settle();
+    // One B eaten in the middle: the A above it becomes reachable, and so do its free-space neighbours.
+    const exp = sim.exposedCounts();
+    expect(exp[0]).toBe(1);
+    expect(exp[1]).toBe(2);
+  });
+
   it('left/right sides expose row ends', () => {
     const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }], [[0]], 1, ['left']));
     const exp = sim.exposedCounts();

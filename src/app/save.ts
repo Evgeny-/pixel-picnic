@@ -6,6 +6,8 @@ export interface Settings {
   sfx: number;
   lang: Lang | null;
   speed: number;
+  /** Debug mode: every level unlocked, difficulty stats visible. */
+  debug: boolean;
 }
 
 export interface SaveData {
@@ -29,7 +31,7 @@ function defaults(): SaveData {
     coins: 120,
     boosters: { hint: 0, undo: 0, slot: 0, shuffle: 0, grab: 0 },
     seen: [],
-    settings: { music: 0.5, sfx: 0.8, lang: null, speed: 1 },
+    settings: { music: 0.5, sfx: 0.8, lang: null, speed: 1, debug: false },
   };
 }
 

@@ -9,6 +9,7 @@ import { emoji, lineIcon } from '../ui/icons';
 import { Hud, type BoosterView } from '../ui/Hud';
 import { MapScreen } from '../ui/MapScreen';
 import { AlbumScreen } from '../ui/AlbumScreen';
+import { DebugScreen } from '../ui/DebugScreen';
 import { openDialog, initDialogs, toast, closeAllDialogs, dialogOpen } from '../ui/dialogs';
 import { pictureCanvas } from '../ui/pictureCanvas';
 import { t, loc, setLang, getLang, type Lang } from './i18n';
@@ -46,6 +47,8 @@ export class App {
   private hud: Hud | null = null;
   private map!: MapScreen;
   private album!: AlbumScreen;
+  private debugList!: DebugScreen;
+  private autoTimer = 0;
   private raf = 0;
   private last = 0;
   private rescued = false;
@@ -72,11 +75,23 @@ export class App {
       onPlay: (n) => this.play(n),
       onSettings: () => this.openSettings(),
       onAlbum: () => this.openAlbum(),
+      onDebug: () => this.openDebugList(),
     });
     this.album = new AlbumScreen(this.ui, () => {
       this.album.hide();
       this.showMap();
     });
+    this.debugList = new DebugScreen(
+      this.ui,
+      () => {
+        this.debugList.hide();
+        this.showMap();
+      },
+      (n) => {
+        this.debugList.hide();
+        void this.play(n);
+      },
+    );
     const unlock = () => audio.unlock();
     window.addEventListener('pointerdown', unlock, { capture: true });
     window.addEventListener('resize', () => this.onResize());
@@ -91,9 +106,13 @@ export class App {
       this.stage.style.cursor = id !== null && (this.game.grabMode || this.game.sim.canTake(id)) ? 'pointer' : '';
     });
     this.stage.addEventListener('pointerleave', () => this.game?.hover(-1, -1));
-    // Dev helpers: ?reset, ?level=N (jump), ?boosters=K, ?coins=K
+    // Dev helpers: ?reset, ?level=N (jump), ?boosters=K, ?coins=K, ?debug=1|0
     const q = new URLSearchParams(location.search);
     if (q.has('reset')) this.save = resetSave();
+    if (q.has('debug')) {
+      this.save.settings.debug = q.get('debug') !== '0';
+      writeSave(this.save);
+    }
     const kb = Number(q.get('boosters'));
     if (kb > 0) for (const b of BOOSTERS) this.save.boosters[b] = kb;
     const kc = Number(q.get('coins'));
@@ -153,11 +172,19 @@ export class App {
       coins: this.save.coins,
       total: this.levels.length,
       picture: (n: number) => this.levels[n - 1]?.picture ?? null,
+      debug: this.save.settings.debug,
+      stats: (n: number) => this.levels[n - 1]?.stats,
     };
+  }
+
+  private openDebugList(): void {
+    this.map.hide();
+    this.debugList.show(this.levels, this.save.stars);
   }
 
   private showMap(): void {
     this.stopLoop();
+    this.stopAuto();
     this.game?.dispose();
     this.game = null;
     this.hud?.destroy();
@@ -212,6 +239,16 @@ export class App {
     });
     this.hud.setLevel(level.n, level.tier);
     this.hud.setProgress(0, 1);
+    this.stopAuto();
+    if (this.save.settings.debug) {
+      const st = level.stats;
+      const pct = (v: number) => `${Math.round(v * 100)}%`;
+      this.hud.setDebug(
+        st
+          ? `casual ${pct(st.casual)} · greedy ${pct(st.greedy)} · ${st.pixels} cubes · ${level.boxes.length} boxes · ${level.picture.palette.length} col`
+          : `${level.boxes.length} boxes · ${level.picture.palette.length} col`,
+      );
+    }
     const ins = this.hud.insets();
     view.insets = { top: ins.top, bottom: ins.bottom, left: 0, right: 0 };
     this.rescued = false;
@@ -521,17 +558,65 @@ export class App {
     const g = this.game;
     if (!g) return;
     g.paused = true;
+    const buttons = [
+      { label: `${lineIcon('play', 22)} ${t('resume')}`, cls: 'green', onClick: () => void (g.paused = false) },
+      { label: `${lineIcon('restart', 22)} ${t('restart')}`, cls: 'blue', onClick: () => void this.restart() },
+      { label: `${lineIcon('map', 22)} ${t('map')}`, cls: 'white', onClick: () => this.showMap() },
+    ];
+    if (this.save.settings.debug) {
+      buttons.push(
+        {
+          label: `${emoji('lady-beetle', 24)} ${t('autoSolve')}`,
+          cls: 'purple small',
+          onClick: () => {
+            g.paused = false;
+            this.startAuto();
+          },
+        },
+        { label: `${lineIcon('ff', 20)} ${t('skipLevel')}`, cls: 'purple small', onClick: () => this.skipLevel() },
+      );
+    }
     openDialog({
       title: t('paused'),
       head: 'purple',
       body: [this.volumeRow('music'), this.volumeRow('sfx')],
-      buttons: [
-        { label: `${lineIcon('play', 22)} ${t('resume')}`, cls: 'green', onClick: () => void (g.paused = false) },
-        { label: `${lineIcon('restart', 22)} ${t('restart')}`, cls: 'blue', onClick: () => void this.restart() },
-        { label: `${lineIcon('map', 22)} ${t('map')}`, cls: 'white', onClick: () => this.showMap() },
-      ],
+      buttons,
       onClose: () => void (g.paused = false),
     });
+  }
+
+  /** Debug: let the solver play the current level. */
+  private startAuto(): void {
+    this.stopAuto();
+    const g = this.game;
+    if (!g) return;
+    g.speed = 3;
+    this.hud?.setSpeed(3);
+    this.autoTimer = window.setInterval(() => {
+      if (this.game !== g) return this.stopAuto();
+      if (dialogOpen()) return;
+      const r = g.autoStep();
+      if (r === 'stuck') {
+        this.stopAuto();
+        toast(this.ui, t('noSolution'), 2500);
+      } else if (r === 'done') this.stopAuto();
+    }, 200);
+  }
+
+  private stopAuto(): void {
+    clearInterval(this.autoTimer);
+    this.autoTimer = 0;
+  }
+
+  /** Debug: mark the level as passed and go on. */
+  private skipLevel(): void {
+    const g = this.game;
+    if (!g) return;
+    const n = g.level.n;
+    this.save.stars[n] = Math.max(this.save.stars[n] ?? 0, 1);
+    if (n >= this.save.level) this.save.level = n + 1;
+    writeSave(this.save);
+    void this.play(n + 1);
   }
 
   private volumeRow(kind: 'music' | 'sfx'): HTMLElement {
@@ -569,6 +654,25 @@ export class App {
       seg.append(b);
     });
     const langRow = h('div', { class: 'setting-row' }, h('span', { text: t('language') }), seg);
+    const dbgSeg = h('div', { class: 'seg' });
+    ([true, false] as const).forEach((v) => {
+      const b = h('button', { class: this.save.settings.debug === v ? 'on' : '', text: t(v ? 'on' : 'off') });
+      b.addEventListener('click', () => {
+        audio.play('button');
+        this.save.settings.debug = v;
+        writeSave(this.save);
+        closeAllDialogs();
+        this.map.show(this.mapData());
+        this.openSettings();
+      });
+      dbgSeg.append(b);
+    });
+    const debugRow = h(
+      'div',
+      { class: 'setting-row' },
+      h('span', { html: `${emoji('lady-beetle', 24)} ${t('debug')}<br><small style="font-size:12px;opacity:.7">${t('debugHint')}</small>` }),
+      dbgSeg,
+    );
     const credits = button(t('credits'), 'white small', () => this.openCredits());
     const reset = button(t('resetProgress'), 'red small', () => {
       openDialog({
@@ -594,7 +698,7 @@ export class App {
     openDialog({
       title: t('settings'),
       head: 'purple',
-      body: [this.volumeRow('music'), this.volumeRow('sfx'), langRow, h('div', { class: 'actions' }, credits, reset)],
+      body: [this.volumeRow('music'), this.volumeRow('sfx'), langRow, debugRow, h('div', { class: 'actions' }, credits, reset)],
       onClose: () => undefined,
     });
   }

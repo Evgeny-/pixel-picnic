@@ -49,6 +49,7 @@ export class Hud {
   private speedBtn: HTMLButtonElement;
   private boosterBtns = new Map<BoosterId, HTMLButtonElement>();
   private tutorialEl: HTMLElement | null = null;
+  private debugEl!: HTMLElement;
   private handEl: HTMLElement | null = null;
 
   constructor(root: HTMLElement, cb: HudCallbacks) {
@@ -71,7 +72,8 @@ export class Hud {
       audio.play('button');
       cb.onSpeed();
     });
-    this.top = h('div', { class: 'hud-top' }, pause, h('div', { class: 'hud-title' }, this.title, h('div', {}, this.tierEl), prog), this.speedBtn);
+    this.debugEl = h('div', { class: 'hud-debug hidden' });
+    this.top = h('div', { class: 'hud-top' }, pause, h('div', { class: 'hud-title' }, this.title, h('div', {}, this.tierEl), prog, this.debugEl), this.speedBtn);
     this.dock = h('div', { class: 'boosters' });
     for (const b of BOOSTERS) {
       const btn = h('button', { class: 'booster', attrs: { 'aria-label': t(`booster_${b}`) } });
@@ -92,6 +94,12 @@ export class Hud {
     this.title.textContent = t('level', { n });
     this.tierEl.className = 'tier ' + tier + (tier === 'normal' ? ' hidden' : '');
     this.tierEl.innerHTML = tier === 'superhard' ? `${emoji('skull', 16)} ${t('superhard')}` : `${emoji('fire', 16)} ${t('hard')}`;
+  }
+
+  /** Debug line with the level's difficulty numbers (null hides it). */
+  setDebug(text: string | null): void {
+    this.debugEl.classList.toggle('hidden', !text);
+    this.debugEl.textContent = text ?? '';
   }
 
   setProgress(eaten: number, total: number): void {

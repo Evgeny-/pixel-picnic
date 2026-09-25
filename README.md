@@ -20,8 +20,10 @@ Works in any modern browser, on phones and on desktop. No install, no ads, no ti
 ## How to play
 
 1. Every level is a picture made of colored cubes lying in a wooden tray.
-2. Ants can only get in through the open sides of the frame (the little white arrows). At first
-   that's just the bottom, so they can reach **only the lowest cube of each column**.
+2. Ants come in through the open sides of the frame (the little white arrows) — at first just the
+   bottom — and walk over free space. **A cube is reachable when there's a free way to it**: from
+   outside, or through the tunnels and gaps already eaten into the picture, from any side of the
+   cube.
 3. Tap a box at the front of the queue. It hops into one of the **five slots** and its ants run
    out; each ant fetches one reachable cube of its color. The number on the box is how many ants
    are still inside.
@@ -65,10 +67,14 @@ Every 5th level is **hard**, every 10th is **super hard**.
 
 ## Under the hood
 
-- **Deterministic rules engine** ([`src/core/sim.ts`](src/core/sim.ts)). Every 105 ms (at 1×) each
-  occupied slot sends one ant to the best reachable cube of its color and claims it immediately.
-  The 3D view only animates the resulting events, so the game, the solver and the level generator
-  share exactly the same rules.
+- **Deterministic rules engine** ([`src/core/sim.ts`](src/core/sim.ts)). Free space is flood-filled
+  from the open sides, and each color keeps a priority queue of reachable cubes. Every 105 ms (at
+  1×) each occupied slot sends one ant to the reachable cube of its color that is closest to an
+  entrance and claims it immediately. The 3D view only animates the resulting events, so the game,
+  the solver and the level generator share exactly the same rules.
+- **Ant paths** — every ant plans its own route: a breadth-first search over the free cells picks
+  the entrance that's most convenient from its slot, the route is smoothed into straight runs, and
+  ants politely wait behind cubes that another ant hasn't carried away yet.
 - **Solver** ([`src/core/solver.ts`](src/core/solver.ts)). A depth‑first search with memoized dead
   ends proves that every level can be finished. The Hint booster runs it live and tells you when
   your position has become unwinnable.
@@ -112,7 +118,12 @@ bun scripts/build-levels.ts     # campaign → src/data/levels.json (about a min
 bun scripts/build-icons.ts      # UI icons
 ```
 
-Handy URL flags: `?level=25` jumps to a level, `?boosters=5`, `?coins=999`, `?progress=14`,
+**Debug mode** (Settings → Debug mode, or `?debug=1`): every level is unlocked, the map shows each
+level's difficulty, the 🐞 button opens a list of all levels with their picture and numbers
+(simulated win rates, size, boxes, mechanics), and the pause menu gets *Auto-solve* (the solver
+plays the level) and *Skip level*.
+
+Other URL flags: `?level=25` jumps to a level, `?boosters=5`, `?coins=999`, `?progress=14`,
 `?demo` (the colony plays by itself), `?reset`.
 
 Pushing to `main` runs the tests, builds the game and publishes it to
