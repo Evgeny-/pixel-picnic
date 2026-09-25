@@ -11,6 +11,7 @@ const LINE: Record<string, string> = {
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   restart: '<path d="M19 12a7 7 0 11-2.05-4.95"/><path d="M19.5 4.5v4h-4"/>',
   map: '<path d="M3.5 6.5l5-2 7 2.5 5-2v13l-5 2-7-2.5-5 2z"/><path d="M8.5 4.5v13M15.5 7v13"/>',
+  home: '<path d="M4 11.5L12 4.5l8 7"/><path d="M6.5 10v9.5h11V10"/><path d="M10 19.5v-5h4v5"/>',
   back: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   slot: '<rect x="4" y="7" width="12" height="12" rx="3"/><path d="M19.5 3.5v6M16.5 6.5h6"/>',

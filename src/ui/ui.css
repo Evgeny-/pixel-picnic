@@ -88,7 +88,7 @@ button { font-family: var(--font); cursor: pointer; }
 .hud-top {
   position: absolute; left: 0; right: 0; top: 0;
   padding: calc(10px + var(--safe-top)) 12px 0;
-  display: grid; grid-template-columns: 56px 1fr 56px; align-items: start; gap: 8px;
+  display: grid; grid-template-columns: 56px minmax(0, 1fr) 56px; align-items: start; gap: 8px;
   pointer-events: none;
 }
 .hud-top > * { pointer-events: auto; }
@@ -334,7 +334,9 @@ button { font-family: var(--font); cursor: pointer; }
 .tier-dot.hard { background: #f0642e; }
 .tier-dot.superhard { background: #7a3cf0; }
 .node .dbg { position: absolute; top: calc(100% + 14px); left: 50%; transform: translateX(-50%); padding: 1px 6px; border-radius: 8px; background: rgba(20, 20, 40, 0.72); color: #fff; font-size: 11px; font-weight: 800; white-space: nowrap; text-shadow: none; }
-.hud-debug { margin-top: 4px; font-size: 11px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); white-space: nowrap; }
+.hud-debug { margin-top: 4px; font-size: 11px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); overflow-wrap: anywhere; }
+.hud-left { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.hud-left .home-btn { width: 44px; height: 44px; }
 
 /* ------------------------------------------------------------------ loading */
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: linear-gradient(180deg, #bfe9ff, #9edc6f); z-index: 50; transition: opacity 0.4s; }

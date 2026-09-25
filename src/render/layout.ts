@@ -100,7 +100,9 @@ function landscape(inp: LayoutInput): Layout {
   const queueCol = rowX(inp.columns, rightCx, colSpacing);
   const queueZ0 = slotZ - 1.85;
   const rowsVisible = 5;
-  const nest = { x: 0.1, z: 5.0 };
+  // The nest sits under the middle of the picture, as in portrait: ants fetch the pieces closest
+  // to home first, so that's where the rules measure distances from.
+  const nest = { x: boardCx, z: bottom + 1.45 };
   const queueTop = queueZ0 - (rowsVisible - 1) * ROW - 0.8;
   const minX = Math.min(picX0 - frame, rightCx - (slot.length * slotSpacing) / 2) - 0.3;
   const maxX = Math.max(rightCx + (slot.length * slotSpacing) / 2, rightCx + (inp.columns * colSpacing) / 2) + 0.3;

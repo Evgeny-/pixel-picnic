@@ -115,11 +115,11 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
   const frozenOn = n === MECHANIC_LEVEL.frozen || (n > MECHANIC_LEVEL.frozen && rng.chance(0.4));
 
   // Fewer queue columns leave fewer ways out of a bad spot: a difficulty lever of its own.
-  const columns = n <= 3 ? 4 : sh ? rng.pick([3, 3, 4]) : hard ? rng.pick([3, 4, 4, 5]) : rng.pick([4, 4, 5]);
+  const columns = n <= 3 ? 4 : sh ? rng.pick([3, 3, 4]) : hard ? rng.pick([3, 3, 4]) : rng.pick([3, 4, 4, 5]);
 
   const params: GenParams = {
     columns,
-    slots: n <= 5 ? 5 : 4,
+    slots: n <= 2 ? 5 : 4,
     fences: [],
     boxMin,
     boxMax,

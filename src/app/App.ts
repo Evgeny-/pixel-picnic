@@ -95,6 +95,12 @@ export class App {
     const unlock = () => audio.unlock();
     window.addEventListener('pointerdown', unlock, { capture: true });
     window.addEventListener('resize', () => this.onResize());
+    // Pick up new deployments: check when the tab comes back and every few minutes.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void this.checkUpdate();
+    });
+    window.setInterval(() => void this.checkUpdate(), 5 * 60_000);
+    window.setTimeout(() => void this.checkUpdate(), 4000);
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.game && !dialogOpen()) this.openPause();
     });
@@ -182,7 +188,30 @@ export class App {
     this.debugList.show(this.levels, this.save.stars);
   }
 
+  private updateReady = false;
+
+  /** A newer build is deployed: reload right away on the map, or as soon as the level is left. */
+  private async checkUpdate(): Promise<void> {
+    if (import.meta.env.DEV || this.updateReady) return;
+    try {
+      const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const { id } = (await res.json()) as { id?: string };
+      if (!id || id === __BUILD_ID__) return;
+      this.updateReady = true;
+      if (!this.game) this.reloadForUpdate();
+    } catch {
+      // offline: try again later
+    }
+  }
+
+  private reloadForUpdate(): void {
+    toast(this.ui, t('newVersion'), 2000);
+    window.setTimeout(() => location.reload(), 700);
+  }
+
   private showMap(): void {
+    if (this.updateReady) return this.reloadForUpdate();
     this.stopLoop();
     this.stopAuto();
     this.game?.dispose();
@@ -234,6 +263,7 @@ export class App {
     const theme = themeForWorld(level.world);
     this.hud = new Hud(this.ui, {
       onPause: () => this.openPause(),
+      onHome: () => this.confirmLeave(),
       onSpeed: () => this.cycleSpeed(),
       onBooster: (b) => this.onBooster(b),
     });
@@ -251,6 +281,8 @@ export class App {
     }
     const ins = this.hud.insets();
     view.insets = { top: ins.top, bottom: ins.bottom, left: 0, right: 0 };
+    // The HUD can grow after the font loads or the debug line wraps: keep the picture clear of it.
+    this.hud.observe(() => this.onResize());
     this.rescued = false;
     if (import.meta.env.DEV) Object.assign(window, { app: this, audio });
     this.game = new Game(view, level, theme, {
@@ -564,7 +596,7 @@ export class App {
     const buttons = [
       { label: `${lineIcon('play', 22)} ${t('resume')}`, cls: 'green', onClick: () => void (g.paused = false) },
       { label: `${lineIcon('restart', 22)} ${t('restart')}`, cls: 'blue', onClick: () => void this.restart() },
-      { label: `${lineIcon('map', 22)} ${t('map')}`, cls: 'white', onClick: () => this.showMap() },
+      { label: `${lineIcon('home', 22)} ${t('toMap')}`, cls: 'white', onClick: () => this.showMap() },
     ];
     if (this.save.settings.debug) {
       buttons.push(
@@ -584,6 +616,24 @@ export class App {
       head: 'purple',
       body: [this.volumeRow('music'), this.volumeRow('sfx')],
       buttons,
+      onClose: () => void (g.paused = false),
+    });
+  }
+
+  /** Home button: back to the map, asking first if the level is under way. */
+  private confirmLeave(): void {
+    const g = this.game;
+    if (!g) return this.showMap();
+    if (g.taps === 0) return this.showMap();
+    g.paused = true;
+    openDialog({
+      title: t('toMap'),
+      head: 'purple',
+      body: [h('p', { text: t('leaveLevel') })],
+      buttons: [
+        { label: `${lineIcon('home', 22)} ${t('leave')}`, cls: 'blue', onClick: () => this.showMap() },
+        { label: `${lineIcon('play', 22)} ${t('stay')}`, cls: 'green', onClick: () => void (g.paused = false) },
+      ],
       onClose: () => void (g.paused = false),
     });
   }

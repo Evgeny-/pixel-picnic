@@ -115,7 +115,7 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   let res = generateLevel(picture, params, target, n * 1013 + 7, tier === 'superhard' ? 36 : 26, 140);
   if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0 }, target, n * 1013 + 8, 40, 100);
   if (!res) return null;
-  const iters = tier === 'superhard' ? 260 : tier === 'hard' ? 200 : 120;
+  const iters = tier === 'superhard' ? 320 : tier === 'hard' ? 260 : 180;
   if (objective(res.diff, target) > 0) {
     // Fine-tune the queue layout with solver-checked local search.
     const tuned = tuneLevel(res.level, res.diff, target, n * 7717 + 3, iters, 90);
@@ -159,7 +159,11 @@ for (let n = 1; n <= COUNT; n++) {
   const tier = tierForLevel(n);
   const tries = tier === 'normal' ? 4 : 5;
   let best: Built | null = null;
-  for (const entry of pictureCandidates(n, tier).slice(0, tries)) {
+  let tried = 0;
+  for (const entry of pictureCandidates(n, tier)) {
+    // A few pictures normally; more when none of them lands near the target.
+    if (tried >= tries && (!best || best.dist <= 0.1 || tried >= tries * 2)) break;
+    tried++;
     const b = buildWith(n, entry);
     if (b && (!best || b.dist < best.dist)) best = b;
     if (best && best.dist === 0) break;

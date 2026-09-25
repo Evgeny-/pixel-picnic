@@ -44,7 +44,7 @@ Every 5th level is **hard**, every 10th is **super hard**.
   | From level | Mechanic |
   |---:|---|
   | 1 | Boxes, five slots, ants coming in from every side (with a short tutorial) |
-  | 6 | Four slots |
+  | 3 | Four slots (the ➕ booster adds a fifth) |
   | 7 | **Mystery boxes** `?` — the color shows only when the box reaches the front |
   | 11 | **Fences** — ants can't get in through a fenced side of the frame |
   | 14 | **Chained boxes** — linked pairs are taken together and need two free slots |
@@ -65,16 +65,18 @@ Every 5th level is **hard**, every 10th is **super hard**.
   rescued it. Every finished picture goes into your album.
 - **Fast by default** — ants are quick, and 2× / 3× speed is free.
 - **Desktop extras** — hover a box to see which cubes its ants could reach right now.
+- **Always up to date** — the game notices a new deployment and reloads itself on the map.
 - **English and Russian**, progress saved in the browser.
 
 ## Under the hood
 
-- **Deterministic rules engine** ([`src/core/sim.ts`](src/core/sim.ts)). Free space is flood-filled
-  from every unfenced border cell, and each color keeps a priority queue of reachable pieces. Every
-  105 ms (at 1×) each occupied slot sends one ant to the reachable piece of its color that is
-  closest to the nest (walking around the frame to an entrance). The ant claims it, and the piece
-  is carried off when the ant arrives — the trip time depends on the distance — which is when the
-  cells behind it open up. The 3D view only animates the resulting events, so the game, the solver
+- **Deterministic rules engine** ([`src/core/sim.ts`](src/core/sim.ts)). The engine keeps a
+  shortest-walk distance field over the free cells — from the nest around the frame to every
+  unfenced border cell and on through the tunnels already eaten — and updates it incrementally as
+  pieces disappear. Each color keeps a priority queue of reachable pieces keyed by that walk, so
+  every 105 ms (at 1×) each occupied slot sends one ant to the piece of its color that is really
+  the closest on foot. The ant claims it, and the piece is carried off when the ant arrives — the
+  trip time depends on the distance — which is when the cells behind it open up. The 3D view only animates the resulting events, so the game, the solver
   and the level generator share exactly the same rules.
 - **Ant paths** — every ant plans its own route: a breadth-first search over the free cells picks
   the entrance that's most convenient from its slot, the route is smoothed into straight runs, and
@@ -86,20 +88,24 @@ Every 5th level is **hard**, every 10th is **super hard**.
   generator builds a queue around a known solution, then plays hundreds of simulated games with
   three players — one tapping **at random**, a "casual" one who only takes colors the ants can
   reach, and a greedy one — and tunes the queue (solver-checked local search: swapping, merging,
-  splitting and moving boxes) until the win rates land in the band for the level's tier. Random
-  tapping wins at most ~10% of normal levels after the first few, ~2% of hard ones and practically
-  never on super hard ones; hard levels are also tuned so the thinking doesn't end after the first
-  taps (the random player is re-measured from a third of the way in). On top of that it counts
-  **critical decisions** — moments on the way to victory where a wrong box leads into a dead end:
-  even the first level has some, super hard ones need five or more and beat the greedy heuristic.
-  Fewer queue columns and fences are extra difficulty levers.
-- **Pictures** — emoji artwork is rasterized, reduced to 3–9 clean colors with k‑means in OKLab,
-  cleaned of stray pixels, and placed on patterned backgrounds at 14×13 to 44×44 cubes
+  splitting and moving boxes) until the win rates land in the band for the level's tier. Tapping
+  at random wins about 10% of the first three tutorial levels and practically never after that
+  (0.7% on average for normal levels, 0% for hard and super hard ones); a casual player wins about
+  12% of normal levels, 4% of hard ones and almost never a super hard one. Levels are also tuned
+  so the thinking doesn't end after the first taps (the random player is re-measured from a third
+  of the way in). On top of that it counts **critical decisions** — moments on the way to victory
+  where a wrong box leads into a dead end: about six per normal level and eight or more on hard
+  ones. Fewer queue columns, four slots and fences are extra difficulty levers.
+- **Pictures** — about 300 curated emoji from three open sets (Fluent, Twemoji and Noto, whose
+  detailed scenes — cities at night, mountains, lighthouses, castles, fairgrounds — make the
+  hardest levels), rasterized, reduced to 3–10 clean colors with k‑means in OKLab, cleaned of stray
+  pixels, and placed on patterned backgrounds at 14×13 to 44×44 pieces
   ([`scripts/lib/pixelart.ts`](scripts/lib/pixelart.ts)).
 - **Rendering** — three.js with instanced pieces (five shapes), hundreds of instanced ants with
-  animated legs, picket fences and gates, golden chains between linked boxes, an ant hill made of
-  loose soil grains, soft shadows, a painted ground per world and ambient particles (pollen,
-  leaves, fireflies, snow…). Phones get a lighter render path automatically.
+  animated legs, picket fences and gates, golden chains between linked boxes, a little ant
+  cottage (the ants walk around it and run in through the open door), soft shadows, a painted
+  ground per world and ambient particles (pollen, leaves, fireflies, snow…). Phones get a lighter
+  render path automatically.
 - **Sound** — every effect and the generative music of each world are synthesized with the Web
   Audio API; there are no audio files.
 
@@ -147,8 +153,9 @@ to the site repository).
 - Level pictures are generated from emoji:
   - [Microsoft Fluent Emoji](https://github.com/microsoft/fluentui-emoji) — MIT License.
   - [Twemoji](https://github.com/jdecked/twemoji) — © Twitter, Inc. and other contributors,
-    graphics licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The
-    pictures are modified (rasterized, recolored and pixelated).
+    graphics licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+  - [Noto Emoji](https://github.com/googlefonts/noto-emoji) — © Google Inc., Apache License 2.0.
+  - All pictures are modified: rasterized, recolored and pixelated.
 - UI icons: Microsoft Fluent Emoji (MIT).
 - Font: [Nunito](https://fonts.google.com/specimen/Nunito) — SIL Open Font License 1.1.
 - 3D engine: [three.js](https://threejs.org) — MIT.

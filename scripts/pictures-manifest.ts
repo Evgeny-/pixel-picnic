@@ -12,7 +12,7 @@
 
 export interface PictureEntry {
   id: string;
-  source: 'fluent' | 'twemoji';
+  source: 'fluent' | 'twemoji' | 'noto';
   icon: string;
   theme: 'meadow' | 'forest' | 'sea' | 'sweets' | 'space' | 'winter' | 'fantasy';
   name: { en: string; ru: string };
@@ -20,7 +20,7 @@ export interface PictureEntry {
 }
 
 type Theme = PictureEntry['theme'];
-type Row = [id: string, source: 'f' | 't', icon: string, en: string, ru: string, complexity: 1 | 2 | 3];
+type Row = [id: string, source: 'f' | 't' | 'n', icon: string, en: string, ru: string, complexity: 1 | 2 | 3];
 
 const rows: Record<Theme, Row[]> = {
   meadow: [
@@ -58,6 +58,12 @@ const rows: Record<Theme, Row[]> = {
     ['rabbit-face', 't', 'rabbit-face', 'Bunny', 'Зайка', 2],
     ['pig-face', 't', 'pig-face', 'Piggy', 'Хрюшка', 2],
     ['house-with-garden', 'f', 'house-with-garden', 'Cottage', 'Домик', 3],
+    ['no-national-park', 'n', 'national-park', 'National Park', 'Национальный парк', 3],
+    ['no-sunrise-mountains', 'n', 'sunrise-over-mountains', 'Sunrise in the Mountains', 'Рассвет в горах', 3],
+    ['no-house-garden', 'n', 'house-with-garden', 'Cottage with a Garden', 'Домик с садом', 3],
+    ['no-tractor', 'n', 'tractor', 'Tractor', 'Трактор', 3],
+    ['no-rooster', 'n', 'rooster', 'Rooster', 'Петушок', 3],
+    ['no-peacock', 'n', 'peacock', 'Peacock', 'Павлин', 3],
   ],
   forest: [
     ['evergreen-tree', 'f', 'evergreen-tree', 'Fir Tree', 'Ёлка', 1],
@@ -92,6 +98,13 @@ const rows: Record<Theme, Row[]> = {
     ['nest-with-eggs', 'f', 'nest-with-eggs', 'Nest', 'Гнёздышко', 2],
     ['camping', 'f', 'camping', 'Camping', 'Поход', 3],
     ['bison', 'f', 'bison', 'Bison', 'Бизон', 3],
+    ['no-camping', 'n', 'camping', 'Camping', 'Кемпинг', 3],
+    ['no-owl', 'n', 'owl', 'Wise Owl', 'Мудрая сова', 2],
+    ['no-hedgehog', 'n', 'hedgehog', 'Hedgehog', 'Ёжик', 2],
+    ['no-deer', 'n', 'deer', 'Deer', 'Оленёнок', 2],
+    ['no-fox', 'n', 'fox', 'Red Fox', 'Рыжий лис', 2],
+    ['no-beaver', 'n', 'beaver', 'Beaver', 'Бобр', 2],
+    ['no-bison', 'n', 'bison', 'Bison', 'Зубр', 2],
   ],
   sea: [
     ['fish', 'f', 'fish', 'Fish', 'Рыбка', 1],
@@ -125,6 +138,21 @@ const rows: Record<Theme, Row[]> = {
     ['water-lily', 'f', 'lotus', 'Water Lily', 'Кувшинка', 2],
     ['desert-island', 'f', 'desert-island', 'Island', 'Остров', 3],
     ['pearl', 'f', 'oyster', 'Pearl', 'Жемчужина', 3],
+    ['no-desert-island', 'n', 'desert-island', 'Desert Island', 'Необитаемый остров', 3],
+    ['no-beach', 'n', 'beach-with-umbrella', 'Beach Umbrella', 'Пляжный зонтик', 3],
+    ['no-lighthouse', 'n', 'lighthouse', 'Lighthouse', 'Маяк', 3],
+    ['no-sunrise', 'n', 'sunrise', 'Sunrise over the Sea', 'Восход над морем', 3],
+    ['no-octopus', 'n', 'octopus', 'Octopus', 'Осьминог', 2],
+    ['no-crab', 'n', 'crab', 'Crab', 'Краб', 2],
+    ['no-tropical-fish', 'n', 'tropical-fish', 'Tropical Fish', 'Тропическая рыбка', 3],
+    ['no-blowfish', 'n', 'blowfish', 'Pufferfish', 'Рыба-ёж', 3],
+    ['no-shark', 'n', 'shark', 'Shark', 'Акула', 2],
+    ['no-whale', 'n', 'spouting-whale', 'Spouting Whale', 'Кит с фонтаном', 3],
+    ['no-turtle', 'n', 'turtle', 'Sea Turtle', 'Черепашка', 2],
+    ['no-jellyfish', 'n', 'jellyfish', 'Jellyfish', 'Медуза', 3],
+    ['no-coral', 'n', 'coral', 'Coral Reef', 'Коралл', 3],
+    ['no-flamingo', 'n', 'flamingo', 'Flamingo', 'Фламинго', 2],
+    ['no-parrot', 'n', 'parrot', 'Parrot', 'Попугай', 3],
   ],
   sweets: [
     ['doughnut', 'f', 'doughnut', 'Donut', 'Пончик', 2],
@@ -159,6 +187,18 @@ const rows: Record<Theme, Row[]> = {
     ['fried-egg', 'f', 'cooking', 'Fried Egg', 'Яичница', 2],
     ['sushi', 't', 'sushi', 'Sushi', 'Суши', 3],
     ['sandwich', 'f', 'sandwich', 'Sandwich', 'Бутерброд', 3],
+    ['no-birthday-cake', 'n', 'birthday-cake', 'Birthday Cake', 'Праздничный торт', 3],
+    ['no-shortcake', 'n', 'shortcake', 'Strawberry Cake', 'Клубничный торт', 3],
+    ['no-cupcake', 'n', 'cupcake', 'Cupcake', 'Капкейк', 3],
+    ['no-chocolate', 'n', 'chocolate-bar', 'Chocolate Bar', 'Шоколадка', 2],
+    ['no-doughnut', 'n', 'doughnut', 'Sprinkle Doughnut', 'Пончик с посыпкой', 3],
+    ['no-cookie', 'n', 'cookie', 'Chocolate Chip Cookie', 'Печенье с шоколадом', 2],
+    ['no-ice-cream', 'n', 'ice-cream', 'Sundae', 'Мороженое в креманке', 3],
+    ['no-shaved-ice', 'n', 'shaved-ice', 'Snow Cone', 'Фруктовый лёд', 3],
+    ['no-honey-pot', 'n', 'honey-pot', 'Honey Pot', 'Горшочек мёда', 2],
+    ['no-pancakes', 'n', 'pancakes', 'Pancake Stack', 'Стопка блинчиков', 2],
+    ['no-bento', 'n', 'bento-box', 'Bento Box', 'Бэнто', 3],
+    ['no-dango', 'n', 'dango', 'Dango', 'Данго', 2],
   ],
   space: [
     ['alien', 'f', 'alien', 'Alien', 'Инопланетянин', 1],
@@ -191,6 +231,17 @@ const rows: Record<Theme, Row[]> = {
     ['milky-way', 'f', 'milky-way', 'Milky Way', 'Млечный путь', 2],
     ['night-city', 'f', 'night-with-stars', 'Night City', 'Ночной город', 3],
     ['night-bridge', 't', 'bridge-at-night', 'Night Bridge', 'Ночной мост', 3],
+    ['no-milky-way', 'n', 'milky-way', 'Milky Way', 'Млечный Путь', 3],
+    ['no-night-stars', 'n', 'night-with-stars', 'Starry Night City', 'Звёздная ночь в городе', 3],
+    ['no-city-dusk', 'n', 'cityscape-at-dusk', 'City at Dusk', 'Город в сумерках', 3],
+    ['no-night-bridge', 'n', 'bridge-at-night', 'Bridge at Night', 'Мост ночью', 3],
+    ['no-city-sunset', 'n', 'sunset', 'City Sunset', 'Закат над городом', 3],
+    ['no-rocket', 'n', 'rocket', 'Rocket', 'Ракета', 3],
+    ['no-flying-saucer', 'n', 'flying-saucer', 'Flying Saucer', 'Летающая тарелка', 3],
+    ['no-saturn', 'n', 'ringed-planet', 'Saturn', 'Сатурн', 3],
+    ['no-satellite', 'n', 'satellite', 'Satellite', 'Спутник', 3],
+    ['no-robot', 'n', 'robot', 'Robot', 'Робот', 2],
+    ['no-astronaut', 'n', 'astronaut', 'Astronaut', 'Космонавт', 3],
   ],
   winter: [
     ['gift', 'f', 'wrapped-gift', 'Gift', 'Подарок', 1],
@@ -224,6 +275,13 @@ const rows: Record<Theme, Row[]> = {
     ['mantel-clock', 'f', 'mantelpiece-clock', 'Clock', 'Часы', 2],
     ['wolf', 'f', 'wolf', 'Grey Wolf', 'Серый волк', 2],
     ['white-hare', 'f', 'rabbit', 'White Hare', 'Заяц-беляк', 2],
+    ['no-snowy-peak', 'n', 'snow-capped-mountain', 'Snowy Peak', 'Снежная вершина', 3],
+    ['no-cable-car', 'n', 'mountain-cableway', 'Cable Car', 'Канатная дорога', 3],
+    ['no-snowman', 'n', 'snowman', 'Snowman', 'Снеговик', 2],
+    ['no-skier', 'n', 'skier', 'Skier', 'Лыжник', 3],
+    ['no-christmas-tree', 'n', 'christmas-tree', 'Christmas Tree', 'Ёлочка', 3],
+    ['no-penguin', 'n', 'penguin', 'Penguin', 'Пингвин', 2],
+    ['no-santa', 'n', 'santa-claus', 'Santa Claus', 'Дед Мороз', 3],
   ],
   fantasy: [
     ['crown', 'f', 'crown', 'Crown', 'Корона', 1],
@@ -257,6 +315,25 @@ const rows: Record<Theme, Row[]> = {
     ['heart-with-ribbon', 'f', 'heart-with-ribbon', 'Heart Gift', 'Сердце с бантом', 2],
     ['dragon', 'f', 'dragon', 'Chinese Dragon', 'Китайский дракон', 3],
     ['phoenix', 'f', 'phoenix-bird', 'Phoenix', 'Феникс', 3],
+    ['no-castle', 'n', 'castle', 'Fairy-tale Castle', 'Сказочный замок', 3],
+    ['no-japanese-castle', 'n', 'japanese-castle', 'Japanese Castle', 'Японский замок', 3],
+    ['no-ferris-wheel', 'n', 'ferris-wheel', 'Ferris Wheel', 'Колесо обозрения', 3],
+    ['no-roller-coaster', 'n', 'roller-coaster', 'Roller Coaster', 'Американские горки', 3],
+    ['no-carousel', 'n', 'carousel-horse', 'Carousel Horse', 'Карусельная лошадка', 3],
+    ['no-circus', 'n', 'circus-tent', 'Circus Tent', 'Цирковой шатёр', 3],
+    ['no-fireworks', 'n', 'fireworks', 'Fireworks', 'Салют', 3],
+    ['no-moon-viewing', 'n', 'moon-viewing-ceremony', 'Moon Festival', 'Праздник луны', 3],
+    ['no-unicorn', 'n', 'unicorn', 'Unicorn', 'Единорог', 3],
+    ['no-dragon', 'n', 'dragon', 'Dragon', 'Дракон', 3],
+    ['no-dragon-face', 'n', 'dragon-face', 'Dragon Face', 'Морда дракона', 3],
+    ['no-wizard', 'n', 'mage', 'Wizard', 'Волшебник', 3],
+    ['no-fairy', 'n', 'fairy', 'Fairy', 'Фея', 3],
+    ['no-genie', 'n', 'genie', 'Genie', 'Джинн', 3],
+    ['no-mermaid', 'n', 'merperson', 'Mermaid', 'Русалочка', 3],
+    ['no-crystal-ball', 'n', 'crystal-ball', 'Crystal Ball', 'Хрустальный шар', 3],
+    ['no-pumpkin', 'n', 'jack-o-lantern', 'Jack-o’-Lantern', 'Тыква-фонарь', 2],
+    ['no-crown', 'n', 'crown', 'Jeweled Crown', 'Корона с камнями', 3],
+    ['no-volcano', 'n', 'volcano', 'Volcano', 'Вулкан', 3],
   ],
 };
 
@@ -265,7 +342,7 @@ export const THEMES: Theme[] = ['meadow', 'forest', 'sea', 'sweets', 'space', 'w
 export const PICTURES: PictureEntry[] = THEMES.flatMap((theme) =>
   rows[theme].map(([id, src, icon, en, ru, complexity]) => ({
     id,
-    source: src === 'f' ? ('fluent' as const) : ('twemoji' as const),
+    source: src === 'f' ? ('fluent' as const) : src === 'n' ? ('noto' as const) : ('twemoji' as const),
     icon,
     theme,
     name: { en, ru },

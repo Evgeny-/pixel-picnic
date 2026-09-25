@@ -110,6 +110,25 @@ describe('Sim', () => {
     expect(exp[1]).toBe(0);
   });
 
+  it('ants go for the cube with the shortest real walk, not the straight-line closest one', () => {
+    // A=0, C=1, bottom entrance only (nest below the middle). The A right above the middle is only
+    // reachable through a long tunnel from the bottom-left corner; the A in the bottom-right corner
+    // is a short walk along the frame.
+    //   C C C C C C C
+    //   . . . . . . C
+    //   . C C A C C C
+    //   . C C C C C A
+    const pic: PictureDef = { id: 'tunnel', w: 7, h: 4, palette: ['#f00', '#888'], cells: '1111111' + '......1' + '.110111' + '.111110' };
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 1 }, { id: 1, color: 1, count: 22 }], [[0], [1]], 1, openOnly('bottom'), pic));
+    expect(sim.walkTo(27)).toBe(3);
+    expect(sim.walkTo(17)).toBe(9);
+    const ev: SimEvent[] = [];
+    sim.take(0);
+    sim.round(ev);
+    const ant = ev.find((e) => e.t === 'ant') as Extract<SimEvent, { t: 'ant' }>;
+    expect(ant.cell).toBe(27);
+  });
+
   it('a cube stays in place until its ant has carried it off', () => {
     const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }, { id: 1, color: 1, count: 6 }], [[0], [1]]));
     sim.take(0);

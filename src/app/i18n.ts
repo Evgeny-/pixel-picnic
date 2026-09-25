@@ -9,6 +9,11 @@ const STRINGS = {
   restart: { ru: 'Начать заново', en: 'Restart' },
   resume: { ru: 'Продолжить', en: 'Resume' },
   map: { ru: 'Карта', en: 'Map' },
+  toMap: { ru: 'К карте уровней', en: 'Back to the map' },
+  leaveLevel: { ru: 'Выйти к карте уровней? Этот уровень начнётся заново.', en: 'Leave for the level map? This level will start over.' },
+  leave: { ru: 'Выйти', en: 'Leave' },
+  stay: { ru: 'Играть дальше', en: 'Keep playing' },
+  newVersion: { ru: 'Вышла новая версия — обновляю…', en: 'A new version is out — reloading…' },
   album: { ru: 'Альбом', en: 'Album' },
   settings: { ru: 'Настройки', en: 'Settings' },
   paused: { ru: 'Пауза', en: 'Paused' },
@@ -103,8 +108,8 @@ const STRINGS = {
   loading: { ru: 'Муравьи готовятся…', en: 'Ants are getting ready…' },
   progress: { ru: 'Съедено', en: 'Eaten' },
   licenseText: {
-    ru: 'Картинки уровней созданы из эмодзи: Microsoft Fluent Emoji (MIT) и Twemoji (© Twitter, Inc. и участники, CC BY 4.0, https://creativecommons.org/licenses/by/4.0/). Шрифт Nunito (SIL OFL 1.1). 3D — three.js (MIT). Музыка и звуки синтезируются в браузере.',
-    en: 'Level pictures are made from emoji: Microsoft Fluent Emoji (MIT) and Twemoji (© Twitter, Inc. and contributors, CC BY 4.0, https://creativecommons.org/licenses/by/4.0/). Font: Nunito (SIL OFL 1.1). 3D: three.js (MIT). Music and sounds are synthesized in the browser.',
+    ru: 'Картинки уровней созданы из эмодзи: Microsoft Fluent Emoji (MIT), Twemoji (© Twitter, Inc. и участники, CC BY 4.0, https://creativecommons.org/licenses/by/4.0/) и Google Noto Emoji (Apache 2.0). Шрифт Nunito (SIL OFL 1.1). 3D — three.js (MIT). Музыка и звуки синтезируются в браузере.',
+    en: 'Level pictures are made from emoji: Microsoft Fluent Emoji (MIT), Twemoji (© Twitter, Inc. and contributors, CC BY 4.0, https://creativecommons.org/licenses/by/4.0/) and Google Noto Emoji (Apache 2.0). Font: Nunito (SIL OFL 1.1). 3D: three.js (MIT). Music and sounds are synthesized in the browser.',
   },
 } satisfies Record<string, Record<Lang, string>>;
 

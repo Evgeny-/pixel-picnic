@@ -4,12 +4,13 @@
  * Sources:
  *  - Microsoft Fluent Emoji Flat (MIT)      @iconify-json/fluent-emoji-flat, 32x32 viewBox
  *  - Twemoji (CC BY 4.0)                    @iconify-json/twemoji,           36x36 viewBox
+ *  - Noto Emoji (Apache 2.0)                @iconify-json/noto,              128x128 viewBox
  */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { Resvg } from '@resvg/resvg-js';
 
-export type EmojiSource = 'fluent' | 'twemoji';
+export type EmojiSource = 'fluent' | 'twemoji' | 'noto';
 
 export const SOURCE_INFO: Record<EmojiSource, { title: string; license: string; url: string; author: string }> = {
   fluent: {
@@ -24,11 +25,18 @@ export const SOURCE_INFO: Record<EmojiSource, { title: string; license: string; 
     url: 'https://github.com/jdecked/twemoji',
     author: 'Twitter, Inc and other contributors',
   },
+  noto: {
+    title: 'Noto Emoji',
+    license: 'Apache 2.0',
+    url: 'https://github.com/googlefonts/noto-emoji',
+    author: 'Google Inc.',
+  },
 };
 
 const PACKAGE: Record<EmojiSource, string> = {
   fluent: '@iconify-json/fluent-emoji-flat/icons.json',
   twemoji: '@iconify-json/twemoji/icons.json',
+  noto: '@iconify-json/noto/icons.json',
 };
 
 interface IconifyIcon {

@@ -437,14 +437,14 @@ export function tuneLevel(
  * a dead end.
  */
 export function tierTarget(tier: Tier, n: number): GenTarget {
-  if (n === 1) return { casual: [0.45, 0.85], random: [0.1, 0.33], greedy: [0.6, 1], minCritical: 1, maxBox: 45 };
-  if (n <= 4) return { casual: [0.3, 0.7], random: [0.04, 0.25], greedy: [0.5, 1], minCritical: 2, maxBox: 50 };
-  if (tier === 'normal' && n <= 10) return { casual: [0.25, 0.6], random: [0.02, 0.18], greedy: [0.45, 1], minCritical: 2, maxBox: 60 };
-  if (tier === 'normal') return { casual: [0.15, 0.5], random: [0, 0.12], greedy: [0.35, 1], minCritical: 3, maxBox: 70 };
-  if (tier === 'hard' && n < 10) return { casual: [0.08, 0.3], random: [0, 0.04], greedy: [0.2, 0.9], minCritical: 3, maxBox: 70 };
-  if (tier === 'hard') return { casual: [0.03, 0.18], random: [0, 0.02], greedy: [0.1, 0.75], minCritical: 4, maxBox: 75, phaseRandom: 0.6 };
-  if (n < 20) return { casual: [0.01, 0.1], random: [0, 0.01], greedy: [0, 0.5], minCritical: 4, maxBox: 80, phaseRandom: 0.6 };
-  return { casual: [0, 0.05], random: [0, 0.005], greedy: [0, 0.35], minCritical: 5, maxBox: 80, phaseRandom: 0.4 };
+  if (n === 1) return { casual: [0.3, 0.65], random: [0, 0.1], greedy: [0.5, 1], minCritical: 2, maxBox: 45 };
+  if (n <= 4) return { casual: [0.15, 0.45], random: [0, 0.04], greedy: [0.4, 1], minCritical: 2, maxBox: 50 };
+  if (tier === 'normal' && n <= 10) return { casual: [0.08, 0.3], random: [0, 0.02], greedy: [0.3, 0.95], minCritical: 3, maxBox: 60, phaseRandom: 0.8 };
+  if (tier === 'normal') return { casual: [0.04, 0.22], random: [0, 0.01], greedy: [0.2, 0.9], minCritical: 3, maxBox: 70, phaseRandom: 0.6 };
+  if (tier === 'hard' && n < 10) return { casual: [0.02, 0.12], random: [0, 0.005], greedy: [0.1, 0.7], minCritical: 4, maxBox: 70, phaseRandom: 0.5 };
+  if (tier === 'hard') return { casual: [0.005, 0.08], random: [0, 0.003], greedy: [0.05, 0.5], minCritical: 5, maxBox: 75, phaseRandom: 0.4 };
+  if (n < 20) return { casual: [0, 0.04], random: [0, 0.002], greedy: [0, 0.3], minCritical: 5, maxBox: 80, phaseRandom: 0.35 };
+  return { casual: [0, 0.02], random: [0, 0.002], greedy: [0, 0.15], minCritical: 6, maxBox: 80, phaseRandom: 0.25 };
 }
 
 /**

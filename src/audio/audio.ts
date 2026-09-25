@@ -507,10 +507,15 @@ class AudioEngine implements Audio {
       case 'deliver':
         this.tone(620 * rnd(0.25), t, 0.07, { gain: 0.045 * v, glide: 980, wet: 0.1 });
         break;
-      case 'boxDone':
-        this.fm(mtof(88), t, 0.7, 3.5, 0.8, 0.09 * v, 0.4);
-        this.fm(mtof(95), t + 0.08, 0.9, 3.5, 0.8, 0.07 * v, 0.4);
+      case 'boxDone': {
+        // A soft wooden "bloop" and a warm two-note pluck: no bell partials, nothing metallic.
+        this.tone(300 * rnd(0.08), t, 0.13, { type: 'sine', gain: 0.15 * v, glide: 560, attack: 0.006 });
+        this.noise(t, 0.05, { type: 'lowpass', freq: 700, gain: 0.05 * v });
+        const root = [67, 69, 72, 74][Math.floor(Math.random() * 4)];
+        this.tone(mtof(root), t + 0.06, 0.55, { type: 'triangle', gain: 0.075 * v, attack: 0.006, decay: 0.5, filter: 1500, wet: 0.25 });
+        this.tone(mtof(root + 7), t + 0.12, 0.6, { type: 'sine', gain: 0.05 * v, attack: 0.008, decay: 0.55, wet: 0.3 });
         break;
+      }
       case 'reveal':
         [84, 88, 91, 96].forEach((m, i) => this.fm(mtof(m), t + i * 0.045, 0.6, 5.1, 0.5, 0.05 * v, 0.6));
         break;

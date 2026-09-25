@@ -8,6 +8,8 @@ import { audio } from '../audio/audio';
 
 export interface HudCallbacks {
   onPause(): void;
+  /** Leave the level for the map. */
+  onHome(): void;
   onSpeed(): void;
   onBooster(b: BoosterId): void;
 }
@@ -51,6 +53,7 @@ export class Hud {
   private tutorialEl: HTMLElement | null = null;
   private debugEl!: HTMLElement;
   private handEl: HTMLElement | null = null;
+  private sizeObserver: ResizeObserver | null = null;
 
   constructor(root: HTMLElement, cb: HudCallbacks) {
     this.el = h('div', { class: 'hud' });
@@ -72,8 +75,20 @@ export class Hud {
       audio.play('button');
       cb.onSpeed();
     });
+    // A visible way back to the level map (the pause menu has it too).
+    const home = h('button', { class: 'btn round white home-btn', html: lineIcon('home', 24), attrs: { 'aria-label': t('toMap') } });
+    home.addEventListener('click', () => {
+      audio.play('button');
+      cb.onHome();
+    });
     this.debugEl = h('div', { class: 'hud-debug hidden' });
-    this.top = h('div', { class: 'hud-top' }, pause, h('div', { class: 'hud-title' }, this.title, h('div', {}, this.tierEl), prog, this.debugEl), this.speedBtn);
+    this.top = h(
+      'div',
+      { class: 'hud-top' },
+      h('div', { class: 'hud-left' }, pause, home),
+      h('div', { class: 'hud-title' }, this.title, h('div', {}, this.tierEl), prog, this.debugEl),
+      this.speedBtn,
+    );
     this.dock = h('div', { class: 'boosters' });
     for (const b of BOOSTERS) {
       const btn = h('button', { class: 'booster', attrs: { 'aria-label': t(`booster_${b}`) } });
@@ -161,7 +176,16 @@ export class Hud {
     this.tutorialEl = this.handEl = null;
   }
 
+  /** Call `cb` whenever the top bar or the booster dock changes size (fonts, wrapped text). */
+  observe(cb: () => void): void {
+    this.sizeObserver?.disconnect();
+    this.sizeObserver = new ResizeObserver(() => cb());
+    this.sizeObserver.observe(this.top);
+    this.sizeObserver.observe(this.dock);
+  }
+
   destroy(): void {
+    this.sizeObserver?.disconnect();
     this.el.remove();
   }
 }

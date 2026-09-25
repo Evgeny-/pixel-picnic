@@ -103,7 +103,7 @@ export class GameView {
     this.board = new BoardView(sim, palette, theme.frame, shape);
     this.board.cubes.castShadow = !LOW_END;
     this.queue = new QueueView(sim, palette);
-    this.nest = new NestView(theme.soil);
+    this.nest = new NestView(theme.roof);
     this.ants = new AntsView(palette, this.board, sim, this.cb, shape);
     this.levelGroup.add(this.board.group, this.queue.group, this.nest.group, this.ants.group);
     this.hemi.color.set(theme.sky);
@@ -157,6 +157,8 @@ export class GameView {
       this.queue.setLayout(l);
       this.nest.setLayout(l);
       this.ants.setLayout(l);
+      const door = this.nest.doorway(this.tmp);
+      this.ants.setHome(this.nest.footprint(), { x: door.x, z: door.z });
     }
     this.fitCamera(freeW, freeH);
     this.ground.setLayout(l);

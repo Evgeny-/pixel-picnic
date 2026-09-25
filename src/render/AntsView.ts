@@ -119,6 +119,9 @@ export class AntsView {
   private bfsPrev = new Int32Array(0);
   /** Cubes the rules have already released for pickup. */
   private ready = new Set<number>();
+  /** The ants' house: an obstacle to walk around, and the doorway they run into. */
+  private house = { x0: 0, x1: 0, z0: 0, z1: 0 };
+  private door = { x: 0, z: 0 };
 
   constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks, shape: PieceShape = 'cube') {
     this.board = board;
@@ -188,6 +191,11 @@ export class AntsView {
 
   get count(): number {
     return this.ants.length;
+  }
+
+  setHome(house: { x0: number; x1: number; z0: number; z1: number }, door: { x: number; z: number }): void {
+    this.house = house;
+    this.door = { x: door.x, z: door.z };
   }
 
   /** Remove every ant immediately (undo / restart). */
@@ -431,7 +439,11 @@ export class AntsView {
   }
 
   private blocked(ax: number, az: number, bx: number, bz: number, useAvoid: boolean): boolean {
-    return this.crosses(this.rect, ax, az, bx, bz) || (useAvoid && this.crosses(this.avoid, ax, az, bx, bz));
+    return (
+      this.crosses(this.rect, ax, az, bx, bz) ||
+      this.crosses(this.house, ax, az, bx, bz) ||
+      (useAvoid && this.crosses(this.avoid, ax, az, bx, bz))
+    );
   }
 
   /** Shortest detour through up to three obstacle corners (tiny visibility graph). */
@@ -442,6 +454,7 @@ export class AntsView {
     const addRect = (r: { x0: number; x1: number; z0: number; z1: number }) =>
       corners.push([r.x0 - m, r.z0 - m], [r.x1 + m, r.z0 - m], [r.x1 + m, r.z1 + m], [r.x0 - m, r.z1 + m]);
     addRect(this.rect);
+    addRect(this.house);
     if (useAvoid) addRect(this.avoid);
     const n = corners.length;
     const d = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -521,14 +534,14 @@ export class AntsView {
   }
 
   private goHome(a: Ant): void {
-    const l = this.layout;
-    // Walk back out the same way the ant came in, then around to the nest.
+    // Walk back out the same way the ant came in, then around to the house.
     const pts: number[] = [];
     const first = Math.max(0, a.pts.length / 2 - Math.max(2, a.back));
     for (let k = a.pts.length / 2 - 1; k >= first; k--) pts.push(a.pts[k * 2], a.pts[k * 2 + 1]);
-    const nx = l.nest.x + (Math.random() - 0.5) * 0.25;
-    const nz = l.nest.z + (Math.random() - 0.5) * 0.15;
-    this.route(pts, nx, nz);
+    // Around the house to the doorstep, then straight in through the door.
+    const dx = this.door.x + (Math.random() - 0.5) * 0.08;
+    this.route(pts, dx, this.door.z + 0.35);
+    pts.push(dx, this.door.z);
     a.pts = pts;
     a.line = [];
     a.lineD = [];

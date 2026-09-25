@@ -11,6 +11,8 @@ export interface WorldTheme {
   bounce: string;
   frame: string;
   soil: string;
+  /** Roof of the ants' house. */
+  roof: string;
   ground: {
     kind: GroundKind;
     base: string;
@@ -32,6 +34,7 @@ export const THEMES: WorldTheme[] = [
     bounce: '#6f9a4d',
     frame: '#f1d39c',
     soil: '#b07a4b',
+    roof: '#e8674a',
     ground: {
       kind: 'grass',
       base: '#86c45b',
@@ -50,6 +53,7 @@ export const THEMES: WorldTheme[] = [
     bounce: '#44613a',
     frame: '#d8b07a',
     soil: '#8a5a36',
+    roof: '#c4563a',
     ground: {
       kind: 'forest',
       base: '#4f7d3e',
@@ -68,6 +72,7 @@ export const THEMES: WorldTheme[] = [
     bounce: '#d9c28f',
     frame: '#ffffff',
     soil: '#c9a26b',
+    roof: '#3a9fd8',
     ground: {
       kind: 'sand',
       base: '#f1dba6',
@@ -86,6 +91,7 @@ export const THEMES: WorldTheme[] = [
     bounce: '#e8a8c6',
     frame: '#fff0f6',
     soil: '#9c5b3b',
+    roof: '#ff7eb6',
     ground: {
       kind: 'frosting',
       base: '#f9cfe2',
@@ -104,6 +110,7 @@ export const THEMES: WorldTheme[] = [
     bounce: '#2b2f55',
     frame: '#c7b8ff',
     soil: '#5b4a7a',
+    roof: '#7b6cf0',
     ground: {
       kind: 'night',
       base: '#2a3358',
@@ -122,6 +129,7 @@ export const THEMES: WorldTheme[] = [
     bounce: '#b9d3e8',
     frame: '#cfe3f3',
     soil: '#8c6a55',
+    roof: '#d94f4f',
     ground: {
       kind: 'snow',
       base: '#eef5fb',
@@ -140,6 +148,7 @@ export const THEMES: WorldTheme[] = [
     bounce: '#6a4f95',
     frame: '#f3d6ff',
     soil: '#7b4e8e',
+    roof: '#a55eea',
     ground: {
       kind: 'magic',
       base: '#8a6cc2',

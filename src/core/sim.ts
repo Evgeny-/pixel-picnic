@@ -10,10 +10,12 @@ import type { Rng } from './rng';
  *   empty cells and cells whose cube has been carried away. A cube is reachable when an ant can
  *   walk up to it from any direction.
  * - The player taps boxes at the front of the queue columns; a box moves into the leftmost free slot.
- * - Every dispatch round, each occupied slot (left to right) sends one ant to the closest reachable
- *   cube of its color. The ant claims the cube (no other ant will go for it), but the cube stays
- *   in place until the ant has walked there and carried it off; only then does it free the way to
- *   the cubes behind it. A box whose ants are all out frees its slot.
+ * - Every dispatch round, each occupied slot (left to right) sends one ant to the reachable cube of
+ *   its color with the shortest walk from the nest: around the frame to an entrance, then over the
+ *   free cells (so a cube at the end of a long tunnel counts as far away). The ant claims the cube
+ *   (no other ant will go for it), but the cube stays in place until the ant has walked there and
+ *   grabbed it; only then does it free the way to the cubes behind it. A box whose ants are all out
+ *   frees its slot.
  * - The level is won when every cube is gone. It is stuck when nothing can happen any more and no
  *   box can be taken (typically: every slot holds a color with no reachable cube).
  */
@@ -24,6 +26,10 @@ export const Where = { Queue: 0, Slot: 1, Done: 2 } as const;
 const BASE_TRIP = 14;
 /** Rounds to walk across the whole picture. */
 const CROSS_TRIP = 28;
+/** "Not reachable" walking distance. */
+const INF = 0x3fffffff;
+/** Distances are counted in half cells (the nest sits between two cells on even-width pictures). */
+const STEP = 2;
 
 export interface SlotState {
   /** Box id, or -1 for a virtual box used by the level generator. */
@@ -52,10 +58,9 @@ interface Shared {
   cell: Int16Array;
   zobA: Int32Array;
   zobB: Int32Array;
-  /** Walking distance estimate from the slots to a cube: which cube an ant prefers. */
-  prio: Int32Array;
-  /** Rounds an ant needs to reach a cube (the cube is carried off after that). */
-  trip: Int16Array;
+  /** For border cells ants can enter through: half-steps around the frame from the nest (else INF). */
+  entry: Int32Array;
+  maxDim: number;
   /** For border cells: bitmask of open sides they touch (1 bottom, 2 top, 4 left, 8 right). */
   edge: Uint8Array;
   colorCount: Int32Array;
@@ -79,7 +84,14 @@ export class Sim {
   air: Uint8Array;
   /** Uneaten cube an ant can walk up to. */
   reach: Uint8Array;
-  /** Per color: binary min-heap of reachable cubes (lazy deletion). */
+  /** Walking distance (half-steps) from the nest to a free cell connected to the outside (else INF). */
+  dist: Int32Array;
+  /** Walking distance (half-steps) from the nest to a reachable cube (else INF). */
+  rd: Int32Array;
+  /**
+   * Per color: binary min-heap of (distance * 4096 + cell) for reachable cubes. Entries go stale
+   * when a cube is eaten, claimed or gets closer; they are skipped when popped.
+   */
   heaps: Int32Array[];
   heapSize: Int32Array;
   /** Reachable and unclaimed cubes per color. */
@@ -106,6 +118,8 @@ export class Sim {
     this.claimed = new Uint8Array(0);
     this.air = new Uint8Array(0);
     this.reach = new Uint8Array(0);
+    this.dist = new Int32Array(0);
+    this.rd = new Int32Array(0);
     this.heaps = [];
     this.heapSize = new Int32Array(0);
     this.reachCount = new Int32Array(0);
@@ -150,35 +164,24 @@ export class Sim {
     });
     const open = gate.map((row) => row.includes(1));
 
-    // Ants come from below the middle of the picture (slots and nest are there), walk around the
-    // frame to an entrance and then straight to the cube: that walk decides which cube they prefer
-    // and how long the trip takes.
-    const prio = new Int32Array(n);
-    const trip = new Int16Array(n);
+    // Ants come from below the middle of the picture (slots and nest are there) and walk around the
+    // frame to an entrance: the cost of stepping into each open border cell.
+    const entry = new Int32Array(n).fill(INF);
     const edge = new Uint8Array(n);
     const cx = (w - 1) / 2;
-    const maxDim = Math.max(w, h);
     const [gB, gT, gL, gR] = gate;
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        let best = Infinity;
-        for (let ex = 0; ex < w; ex++) {
-          if (gB[ex]) best = Math.min(best, Math.abs(ex - cx) + Math.abs(ex - x) + (h - 1 - y));
-          if (gT[ex]) best = Math.min(best, cx + h + Math.min(ex, w - 1 - ex) + Math.abs(ex - x) + y);
-        }
-        for (let ey = 0; ey < h; ey++) {
-          if (gL[ey]) best = Math.min(best, cx + (h - 1 - ey) + x + Math.abs(ey - y));
-          if (gR[ey]) best = Math.min(best, cx + (h - 1 - ey) + (w - 1 - x) + Math.abs(ey - y));
-        }
-        if (!Number.isFinite(best)) best = 2 * (w + h);
-        prio[i] = Math.round(best * 64);
-        trip[i] = BASE_TRIP + Math.round((CROSS_TRIP * best) / maxDim);
-        if (y === h - 1 && gB[x]) edge[i] |= 1;
-        if (y === 0 && gT[x]) edge[i] |= 2;
-        if (x === 0 && gL[y]) edge[i] |= 4;
-        if (x === w - 1 && gR[y]) edge[i] |= 8;
-      }
+    const at = (i: number, cost: number, bit: number) => {
+      entry[i] = Math.min(entry[i], Math.round(cost * STEP));
+      edge[i] |= bit;
+    };
+    for (let x = 0; x < w; x++) {
+      if (gB[x]) at((h - 1) * w + x, Math.abs(x - cx), 1);
+      if (gT[x]) at(x, cx + h + Math.min(x, w - 1 - x), 2);
+    }
+    for (let y = 0; y < h; y++) {
+      if (gL[y]) at(y * w, cx + (h - 1 - y), 4);
+      if (gR[y]) at(y * w + w - 1, cx + (h - 1 - y), 8);
+    }
 
     const colorCount = new Int32Array(colors);
     for (let i = 0; i < n; i++) if (cell[i] >= 0) colorCount[cell[i]]++;
@@ -202,29 +205,31 @@ export class Sim {
     }
 
     const sim = new Sim({
-      w, h, colors, cell, zobA, zobB, prio, trip, edge, colorCount,
+      w, h, colors, cell, zobA, zobB, entry, maxDim: Math.max(w, h), edge, colorCount,
       boxColor, boxCount, boxLink, boxThaw, groups, fences, open,
     });
     sim.eaten = new Uint8Array(n);
     sim.claimed = new Uint8Array(n);
     sim.air = new Uint8Array(n);
     sim.reach = new Uint8Array(n);
-    sim.heaps = Array.from({ length: colors }, (_, c) => new Int32Array(Math.max(1, colorCount[c])));
+    sim.dist = new Int32Array(n).fill(INF);
+    sim.rd = new Int32Array(n).fill(INF);
+    sim.heaps = Array.from({ length: colors }, (_, c) => new Int32Array(Math.max(8, colorCount[c] * 2)));
     sim.heapSize = new Int32Array(colors);
     sim.reachCount = new Int32Array(colors);
     sim.remaining = Int32Array.from(colorCount);
     sim.left = colorCount.reduce((a, b) => a + b, 0);
-    const queue: number[] = [];
+    // Walk in from every entrance: empty border cells become walkable, border cubes reachable.
+    const starts: number[] = [];
     for (let i = 0; i < n; i++) {
-      if (!edge[i]) continue;
+      if (entry[i] >= INF) continue;
       if (cell[i] < 0) {
-        if (!sim.air[i]) {
-          sim.air[i] = 1;
-          queue.push(i);
-        }
-      } else sim.markReach(i);
+        sim.air[i] = 1;
+        sim.dist[i] = entry[i];
+        starts.push(i);
+      } else sim.offer(i, entry[i]);
     }
-    sim.flood(queue);
+    sim.spread(starts);
 
     sim.boxHidden = new Uint8Array(maxId);
     sim.boxWhere = new Uint8Array(maxId).fill(Where.Done);
@@ -248,9 +253,12 @@ export class Sim {
     c.claimed = this.claimed.slice();
     c.air = this.air.slice();
     c.reach = this.reach.slice();
+    c.dist = this.dist.slice();
+    c.rd = this.rd.slice();
     c.heaps = this.heaps.map((hp, k) => {
-      const copy = new Int32Array(hp.length);
-      copy.set(hp.subarray(0, this.heapSize[k]));
+      const size = this.heapSize[k];
+      const copy = new Int32Array(Math.max(8, size + (size >> 1)));
+      copy.set(hp.subarray(0, size));
       return copy;
     });
     c.heapSize = this.heapSize.slice();
@@ -292,72 +300,87 @@ export class Sim {
     return this.s.open[SIDES.indexOf(side)];
   }
 
-  private less(a: number, b: number): boolean {
-    const pa = this.s.prio[a];
-    const pb = this.s.prio[b];
-    return pa < pb || (pa === pb && a < b);
-  }
-
-  private markReach(i: number): void {
-    if (this.reach[i]) return;
-    this.reach[i] = 1;
+  /** Ants can now reach cube `i` in `d` steps (if that's closer than before). */
+  private offer(i: number, d: number): void {
+    if (d >= this.rd[i]) return;
     const color = this.s.cell[i];
-    this.reachCount[color]++;
-    const hp = this.heaps[color];
+    if (!this.reach[i]) {
+      this.reach[i] = 1;
+      if (!this.claimed[i]) this.reachCount[color]++;
+    }
+    this.rd[i] = d;
+    let hp = this.heaps[color];
     let k = this.heapSize[color]++;
-    hp[k] = i;
+    if (k >= hp.length) {
+      const bigger = new Int32Array(hp.length * 2);
+      bigger.set(hp);
+      this.heaps[color] = hp = bigger;
+    }
+    const key = d * 4096 + i;
     while (k > 0) {
       const p = (k - 1) >> 1;
-      if (!this.less(hp[k], hp[p])) break;
-      const t = hp[k];
+      if (hp[p] <= key) break;
       hp[k] = hp[p];
-      hp[p] = t;
       k = p;
     }
+    hp[k] = key;
   }
 
   private heapPop(color: number): void {
     const hp = this.heaps[color];
     const size = --this.heapSize[color];
     if (size <= 0) return;
-    hp[0] = hp[size];
+    const last = hp[size];
     let k = 0;
     for (;;) {
       const l = k * 2 + 1;
+      if (l >= size) break;
       const r = l + 1;
-      let m = k;
-      if (l < size && this.less(hp[l], hp[m])) m = l;
-      if (r < size && this.less(hp[r], hp[m])) m = r;
-      if (m === k) break;
-      const t = hp[k];
+      const m = r < size && hp[r] < hp[l] ? r : l;
+      if (hp[m] >= last) break;
       hp[k] = hp[m];
-      hp[m] = t;
       k = m;
     }
+    hp[k] = last;
   }
 
-  /** Spread "air" from the queued free cells and mark every cube it touches as reachable. */
-  private flood(queue: number[]): void {
+  /**
+   * Walking distances changed at the given free cells (their `dist` is set): spread the
+   * improvement over the free cells and offer the cubes next to them. Distances only grow along
+   * the way, so a bucket queue keeps it a shortest-path search.
+   */
+  private spread(start: number[]): void {
     const { w, h, cell } = this.s;
-    for (let qi = 0; qi < queue.length; qi++) {
-      const i = queue[qi];
-      const x = i % w;
-      const y = (i - x) / w;
-      for (let d = 0; d < 4; d++) {
-        let nx = x;
-        let ny = y;
-        if (d === 0) ny++;
-        else if (d === 1) ny--;
-        else if (d === 2) nx--;
-        else nx++;
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const j = ny * w + nx;
-        if (cell[j] < 0 || this.eaten[j]) {
-          if (!this.air[j]) {
-            this.air[j] = 1;
-            queue.push(j);
-          }
-        } else this.markReach(j);
+    const buckets: number[][] = [];
+    let lo = INF;
+    for (const i of start) {
+      const d = this.dist[i];
+      (buckets[d] ??= []).push(i);
+      if (d < lo) lo = d;
+    }
+    for (let d = lo; d < buckets.length; d++) {
+      const b = buckets[d];
+      if (!b) continue;
+      for (let k = 0; k < b.length; k++) {
+        const i = b[k];
+        if (this.dist[i] !== d) continue;
+        const x = i % w;
+        const y = (i - x) / w;
+        for (let dir = 0; dir < 4; dir++) {
+          let j: number;
+          if (dir === 0) { if (y + 1 >= h) continue; j = i + w; }
+          else if (dir === 1) { if (y === 0) continue; j = i - w; }
+          else if (dir === 2) { if (x === 0) continue; j = i - 1; }
+          else { if (x + 1 >= w) continue; j = i + 1; }
+          const nd = d + STEP;
+          if (cell[j] < 0 || this.eaten[j]) {
+            if (nd < this.dist[j]) {
+              this.air[j] = 1;
+              this.dist[j] = nd;
+              (buckets[nd] ??= []).push(j);
+            }
+          } else this.offer(j, nd);
+        }
       }
     }
   }
@@ -365,8 +388,18 @@ export class Sim {
   /** Closest reachable, unclaimed cube of `color`, or -1. */
   findTarget(color: number): number {
     const hp = this.heaps[color];
-    while (this.heapSize[color] > 0 && (this.eaten[hp[0]] || this.claimed[hp[0]])) this.heapPop(color);
-    return this.heapSize[color] > 0 ? hp[0] : -1;
+    while (this.heapSize[color] > 0) {
+      const top = hp[0];
+      const c = top & 4095;
+      if (!this.eaten[c] && !this.claimed[c] && this.rd[c] === (top - c) / 4096) return c;
+      this.heapPop(color);
+    }
+    return -1;
+  }
+
+  /** Cells to walk from the nest to a reachable cube (Infinity if it can't be reached). */
+  walkTo(i: number): number {
+    return this.rd[i] >= INF ? Infinity : this.rd[i] / STEP;
   }
 
   /** Reachable, unclaimed cubes per color (index = color). */
@@ -383,11 +416,16 @@ export class Sim {
     return res;
   }
 
+  /** Rounds an ant needs to walk to cube `i` and grab it. */
+  tripTo(i: number): number {
+    return BASE_TRIP + Math.min(240, Math.round((CROSS_TRIP * this.rd[i]) / (STEP * this.s.maxDim)));
+  }
+
   /** An ant sets off for this cube. */
   private claim(i: number): void {
     this.claimed[i] = 1;
     if (this.reach[i]) this.reachCount[this.s.cell[i]]--;
-    this.pending.push((this.roundNo + this.s.trip[i]) * 4096 + i);
+    this.pending.push((this.roundNo + this.tripTo(i)) * 4096 + i);
     // sift up
     let k = this.pending.length - 1;
     const pd = this.pending;
@@ -426,7 +464,7 @@ export class Sim {
 
   /** The cube is carried off: free its cell and open the way to its neighbours. */
   eatCell(i: number): void {
-    const { w, h, cell, zobA, zobB, edge } = this.s;
+    const { cell, zobA, zobB } = this.s;
     if (this.eaten[i] || cell[i] < 0) return;
     this.eaten[i] = 1;
     const color = cell[i];
@@ -437,18 +475,13 @@ export class Sim {
     this.left--;
     this.hashA ^= zobA[i];
     this.hashB ^= zobB[i];
-    const x = i % w;
-    const y = (i - x) / w;
-    let connected = edge[i] !== 0;
-    if (!connected) {
-      if (y + 1 < h && this.air[i + w]) connected = true;
-      else if (y > 0 && this.air[i - w]) connected = true;
-      else if (x > 0 && this.air[i - 1]) connected = true;
-      else if (x + 1 < w && this.air[i + 1]) connected = true;
-    }
-    if (connected && !this.air[i]) {
+    // The ants now walk where the cube was: it's as far from the nest as the cube was.
+    const d = this.rd[i];
+    this.rd[i] = INF;
+    if (d < this.dist[i]) {
       this.air[i] = 1;
-      this.flood([i]);
+      this.dist[i] = d;
+      this.spread([i]);
     }
   }
 
@@ -653,7 +686,7 @@ export class Sim {
       this.claim(cell);
       sl.left--;
       activity++;
-      ev?.push({ t: 'ant', slot: s, box: sl.box, cell, color: sl.color, left: sl.left, due: this.roundNo + this.s.trip[cell] });
+      ev?.push({ t: 'ant', slot: s, box: sl.box, cell, color: sl.color, left: sl.left, due: this.roundNo + this.tripTo(cell) });
       if (sl.left <= 0) {
         this.slots[s] = null;
         if (sl.box >= 0) this.boxWhere[sl.box] = Where.Done;

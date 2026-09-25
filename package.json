@@ -18,6 +18,7 @@
   },
   "devDependencies": {
     "@iconify-json/fluent-emoji-flat": "^1.2.6",
+    "@iconify-json/noto": "^1.2.8",
     "@iconify-json/twemoji": "^1.2.5",
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^26.6.2",
