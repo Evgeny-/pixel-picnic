@@ -17,6 +17,8 @@ export interface DialogOptions {
   closable?: boolean;
   onClose?: () => void;
   scroll?: boolean;
+  /** Extra class for the dialog box (e.g. "wide"). */
+  cls?: string;
 }
 
 export interface DialogHandle {
@@ -41,7 +43,7 @@ export function closeAllDialogs(): void {
 
 export function openDialog(opts: DialogOptions): DialogHandle {
   const overlay = h('div', { class: 'overlay' });
-  const dlg = h('div', { class: 'dialog' + (opts.scroll ? ' scroll' : '') });
+  const dlg = h('div', { class: 'dialog' + (opts.scroll ? ' scroll' : '') + (opts.cls ? ' ' + opts.cls : '') });
   dlg.append(h('div', { class: 'dialog-head ' + (opts.head ?? 'blue'), text: opts.title }));
   let closed = false;
   const handle: DialogHandle = {

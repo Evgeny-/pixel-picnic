@@ -21,6 +21,7 @@ export interface MapData {
 
 export interface MapCallbacks {
   onPlay(n: number): void;
+  onShop(): void;
   onSettings(): void;
   onAlbum(): void;
   onDebug(): void;
@@ -92,7 +93,13 @@ export class MapScreen {
       audio.play('button');
       cb.onDebug();
     });
-    const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, this.debugBtn, album, settings));
+    const shop = h('button', { class: 'btn round white', html: emoji('shopping-bags', 30), attrs: { 'aria-label': t('shop') } });
+    shop.addEventListener('click', () => {
+      audio.unlock();
+      audio.play('button');
+      cb.onShop();
+    });
+    const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, this.debugBtn, shop, album, settings));
     this.playBtn = button('', 'big green', () => this.cb.onPlay(this.data.unlocked));
     const dock = h('div', { class: 'play-dock' }, this.playBtn);
     this.el.append(this.scroll, top, dock);

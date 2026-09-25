@@ -83,7 +83,7 @@ export function solve(start: Sim, maxNodes = 60000): SolveResult {
 export type Policy = 'casual' | 'greedy' | 'random';
 
 /** Default number of queue rows a player can see. */
-export const VISIBLE_ROWS = 4;
+export const VISIBLE_ROWS = 3;
 
 /** How good a settled position looks to a player: progress, free slots, no stranded boxes. */
 function positionScore(sim: Sim, exposed: Int32Array): number {
@@ -94,7 +94,7 @@ function positionScore(sim: Sim, exposed: Int32Array): number {
   let v = eaten;
   for (const sl of sim.slots) {
     if (!sl) v += 15;
-    else if (exposed[sl.color] === 0) v -= 40;
+    else if (sl.left > 0 && exposed[sl.color] === 0) v -= 40;
   }
   return v;
 }

@@ -6,7 +6,7 @@ export type BoosterId = 'hint' | 'undo' | 'slot' | 'shuffle' | 'grab';
 export const BOOSTERS: BoosterId[] = ['hint', 'undo', 'slot', 'shuffle', 'grab'];
 
 export const BOOSTER_UNLOCK: Record<BoosterId, number> = { hint: 2, slot: 3, undo: 4, shuffle: 6, grab: 9 };
-export const BOOSTER_PRICE: Record<BoosterId, number> = { hint: 30, undo: 40, shuffle: 50, slot: 70, grab: 80 };
+export const BOOSTER_PRICE: Record<BoosterId, number> = { hint: 60, undo: 80, shuffle: 100, slot: 140, grab: 160 };
 /** Free boosters granted when a booster unlocks. */
 export const BOOSTER_GIFT = 2;
 
@@ -32,7 +32,7 @@ export interface Reward {
 /** Seconds a level may take for the "quick" bonus: letting all the ants out at 1x plus some thinking. */
 export function parTime(level: LevelDef): number {
   const ants = level.boxes.reduce((a, b) => a + b.count, 0);
-  return Math.round(15 + (ants * 0.16) / level.slots + level.boxes.length * 3.5);
+  return Math.round(15 + (ants * 0.4) / level.slots + level.boxes.length * 3.5);
 }
 
 /**
@@ -148,10 +148,10 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
   // Fewer queue columns leave fewer ways out of a bad spot: a difficulty lever of its own.
   const columns = n <= 3 ? 4 : sh ? rng.pick([3, 3, 4]) : hard ? rng.pick([3, 3, 4]) : rng.pick([3, 4, 4, 5]);
 
-  // Only the first rows of the queue are visible; deeper boxes appear as columns move up.
-  // Seeing less means planning with less information: hard levels often show just three rows,
-  // and sometimes only a "?" tells that a column hides more boxes.
-  const visibleRows = n <= 4 ? 5 : sh ? (rng.chance(0.7) ? 3 : 4) : hard ? (rng.chance(0.5) ? 3 : 4) : n < 40 && rng.chance(0.2) ? 5 : 4;
+  // Only the first three rows of the queue are visible; deeper boxes appear as columns move up,
+  // so you plan with limited information. On harder levels only a "?" tells that a column hides
+  // more boxes.
+  const visibleRows = 3;
   const queueHint: 'count' | 'mystery' = rng.chance(sh ? 0.7 : hard ? 0.5 : n > 30 ? 0.2 : 0) ? 'mystery' : 'count';
 
   const params: GenParams = {

@@ -77,7 +77,7 @@ export interface LevelDef {
   /** Fenced parts of the frame; everything else is open (no fences = ants enter from all sides). */
   fences?: Fence[];
   shape?: PieceShape;
-  /** Queue rows the player can see (deeper boxes appear as the columns move up). Default 4. */
+  /** Queue rows the player can see (deeper boxes appear as the columns move up). Default 3. */
   visibleRows?: number;
   /**
    * What the player learns about the hidden rest of a column: 'count' shows "+3", 'mystery' only

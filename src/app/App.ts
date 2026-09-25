@@ -6,7 +6,7 @@ import { loadFonts } from '../render/textures';
 import { audio } from '../audio/audio';
 import { h, button } from '../ui/dom';
 import { emoji, lineIcon } from '../ui/icons';
-import { Hud, type BoosterView } from '../ui/Hud';
+import { Hud, boosterIcon, type BoosterView } from '../ui/Hud';
 import { MapScreen } from '../ui/MapScreen';
 import { AlbumScreen } from '../ui/AlbumScreen';
 import { DebugScreen } from '../ui/DebugScreen';
@@ -29,6 +29,8 @@ import {
   type MechanicId,
 } from '../core/progression';
 import type { LevelDef } from '../core/types';
+import { HAT_LOOKS, HOUSE_LOOKS, lookKey } from '../core/looks';
+import { lookPreview } from '../render/preview';
 import type { EmojiName } from '../ui/emoji.generated';
 
 const MECH_ICON: Record<MechanicId, EmojiName> = {
@@ -92,6 +94,7 @@ export class App {
 
     this.map = new MapScreen(this.ui, {
       onPlay: (n) => this.play(n),
+      onShop: () => this.openLooksShop('house'),
       onSettings: () => this.openSettings(),
       onAlbum: () => this.openAlbum(),
       onDebug: () => this.openDebugList(),
@@ -142,6 +145,10 @@ export class App {
     if (kb > 0) for (const b of BOOSTERS) this.save.boosters[b] = kb;
     const kc = Number(q.get('coins'));
     if (kc > 0) this.save.coins = kc;
+    // ?looks=mushroom,party — try a house and a hat (testing)
+    const lk = q.get('looks')?.split(',');
+    if (lk?.[0]) this.save.looks.house = lk[0];
+    if (lk?.[1]) this.save.looks.hat = lk[1];
     const prog = Number(q.get('progress'));
     if (prog > 1) {
       for (let n = 1; n < prog; n++) this.save.stars[n] = this.save.stars[n] ?? (n % 4 === 0 ? 2 : 3);
@@ -279,6 +286,7 @@ export class App {
     this.game?.dispose();
     this.hud?.destroy();
     const view = this.ensureView();
+    view.looks = { house: this.save.looks.house, hat: this.save.looks.hat };
     this.stage.style.visibility = 'visible';
     const theme = themeForWorld(level.world);
     this.hud = new Hud(this.ui, {
@@ -486,6 +494,91 @@ export class App {
     }
     this.refreshBoosters();
     return ok;
+  }
+
+  /** Shop on the map: house looks, ant hats and boosters for coins. */
+  private openLooksShop(tab: 'house' | 'hat' | 'booster'): void {
+    const coins = h('p', { class: 'shop-coins', html: `${emoji('coin', 26)} ${this.save.coins}` });
+    const tabs = h('div', { class: 'seg shop-tabs' });
+    const tabDefs: [typeof tab, string][] = [['house', t('shopHouses')], ['hat', t('shopAnts')], ['booster', t('shopBoosters')]];
+    for (const [id, label] of tabDefs) {
+      const b = h('button', { class: id === tab ? 'on' : '', text: label });
+      b.addEventListener('click', () => {
+        audio.play('button');
+        closeAllDialogs();
+        this.openLooksShop(id);
+      });
+      tabs.append(b);
+    }
+    const grid = h('div', { class: 'shop-grid' });
+    const reopen = () => {
+      closeAllDialogs();
+      this.openLooksShop(tab);
+      this.map.render();
+    };
+    if (tab === 'booster') {
+      for (const b of BOOSTERS) {
+        const card = h(
+          'button',
+          { class: 'look-card' },
+          h('span', { class: 'look-pic booster-pic', html: boosterArt(b) }),
+          h('span', { class: 'nm', text: t(`booster_${b}`) }),
+          h('span', { class: 'price', html: `×${this.save.boosters[b]} · ${emoji('coin', 18)} ${BOOSTER_PRICE[b]}` }),
+        );
+        card.addEventListener('click', () => {
+          if (this.save.coins < BOOSTER_PRICE[b]) {
+            audio.play('invalid');
+            toast(this.ui, t('notEnough'));
+            return;
+          }
+          this.save.coins -= BOOSTER_PRICE[b];
+          this.save.boosters[b]++;
+          writeSave(this.save);
+          audio.play('coin');
+          reopen();
+        });
+        grid.append(card);
+      }
+    } else {
+      const items = tab === 'house' ? HOUSE_LOOKS : HAT_LOOKS;
+      const looks = this.save.looks;
+      for (const item of items) {
+        const owned = item.price === 0 || looks.owned.includes(lookKey(item));
+        const worn = (tab === 'house' ? looks.house : looks.hat) === item.id;
+        const status = worn
+          ? `${lineIcon('check', 16)} ${t('worn')}`
+          : owned
+            ? t('wear')
+            : `${emoji('coin', 18)} ${item.price}`;
+        const card = h(
+          'button',
+          { class: 'look-card' + (worn ? ' worn' : owned ? ' owned' : '') },
+          h('img', { class: 'look-pic', attrs: { src: lookPreview(item.kind, item.id), alt: '' } }),
+          h('span', { class: 'nm', text: loc(item.name) }),
+          h('span', { class: 'price', html: status }),
+        );
+        card.addEventListener('click', () => {
+          if (worn) return;
+          if (!owned) {
+            if (this.save.coins < item.price) {
+              audio.play('invalid');
+              toast(this.ui, t('notEnough'));
+              return;
+            }
+            this.save.coins -= item.price;
+            looks.owned.push(lookKey(item));
+            audio.play('unlock');
+            toast(this.ui, t('bought'));
+          } else audio.play('button');
+          if (tab === 'house') looks.house = item.id;
+          else looks.hat = item.id;
+          writeSave(this.save);
+          reopen();
+        });
+        grid.append(card);
+      }
+    }
+    openDialog({ title: t('shop'), head: 'purple', body: [coins, tabs, grid], onClose: () => undefined, cls: 'wide' });
   }
 
   private openShop(b: BoosterId, fromStuck = false): void {
@@ -861,16 +954,5 @@ export class App {
 }
 
 function boosterArt(b: BoosterId): string {
-  switch (b) {
-    case 'hint':
-      return emoji('light-bulb', 84);
-    case 'grab':
-      return emoji('magnet', 84);
-    case 'undo':
-      return `<span style="color:#ff8a3d">${lineIcon('undo', 84)}</span>`;
-    case 'shuffle':
-      return `<span style="color:#3aa0ff">${lineIcon('shuffle', 84)}</span>`;
-    case 'slot':
-      return `<span style="color:#35b84a">${lineIcon('slot', 84)}</span>`;
-  }
+  return boosterIcon(b, 84);
 }

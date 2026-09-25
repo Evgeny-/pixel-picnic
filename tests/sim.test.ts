@@ -163,6 +163,27 @@ describe('Sim', () => {
     expect(sim.taps).toBe(1);
   });
 
+  it('an empty linked box waits in its slot until its partner is empty too', () => {
+    // A=0 (6 cubes), B=1 (6 cubes); all sides open: every cube is reachable except the two
+    // B cubes in the middle row, which open up once their neighbours are gone.
+    const boxes: BoxDef[] = [
+      { id: 0, color: 0, count: 2, link: 3 },
+      { id: 1, color: 1, count: 6, link: 3 },
+      { id: 2, color: 0, count: 4 },
+    ];
+    const sim = Sim.fromLevel(level(boxes, [[0, 2], [1]], 3, []));
+    sim.take(0);
+    const ev: SimEvent[] = [];
+    for (let i = 0; i < 3; i++) sim.round(ev);
+    // The A box sent both its ants but still holds its slot while B is busy.
+    expect(sim.slots.some((s) => s?.box === 0 && s.left === 0)).toBe(true);
+    expect(ev.some((e) => e.t === 'boxDone')).toBe(false);
+    sim.settle(ev);
+    const done = ev.filter((e) => e.t === 'boxDone').map((e) => (e as { box: number }).box);
+    expect(done.sort()).toEqual([0, 1]);
+    expect(sim.slots.filter(Boolean).length).toBe(0);
+  });
+
   it('stacked linked boxes are taken from the same column', () => {
     const boxes: BoxDef[] = [
       { id: 0, color: 0, count: 3, link: 1 },

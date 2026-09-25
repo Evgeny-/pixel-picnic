@@ -12,7 +12,7 @@ const ICONS = [
   'shooting-star', 'lady-beetle', 'sun', 'key', 'hourglass-done', 'construction', 'door',
   // shop
   'shopping-bags', 'billed-cap', 'top-hat', 'ribbon', 'sunglasses', 'santa-claus', 'hut', 'wood', 'ice',
-  'jack-o-lantern',
+  'jack-o-lantern', 'game-die',
   // map decorations
   'mushroom', 'evergreen-tree', 'deciduous-tree', 'tulip', 'sunflower', 'blossom', 'spiral-shell', 'tropical-fish',
   'lollipop', 'candy', 'doughnut', 'crescent-moon', 'ringed-planet', 'rocket', 'snowman', 'crystal-ball', 'castle',

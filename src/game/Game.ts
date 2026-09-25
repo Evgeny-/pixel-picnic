@@ -19,8 +19,11 @@ export interface GameHooks {
 }
 
 /** Seconds between two dispatch rounds at 1x speed. */
-/** Seconds per dispatch round at 1x: every box lets one ant out per round. */
-const ROUND = 0.16;
+/**
+ * Seconds per dispatch round at 1x: every box lets one ant out per round, which leaves about an
+ * ant's length between ants walking in a line.
+ */
+const ROUND = 0.4;
 
 /**
  * Real-time driver: advances the deterministic simulation in rounds and lets the view

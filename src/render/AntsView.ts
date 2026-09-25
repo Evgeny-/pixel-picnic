@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Sim } from '../core/sim';
 import type { PieceShape } from '../core/types';
 import { pieceGeometry, pieceMaterial } from './pieces';
+import { hatGeometry, type HatId } from './hats';
 import type { Layout } from './layout';
 import type { BoardView } from './BoardView';
 
@@ -52,6 +53,31 @@ function buildLeg(): THREE.BufferGeometry {
     new THREE.Vector3(0.36, -0.2, 0),
   ]);
   return new THREE.TubeGeometry(curve, 6, 0.024, 4, false);
+}
+
+/** A single standing ant as ordinary meshes (for shop previews), optionally with a hat. */
+export function antModel(color: string, hat: HatId = 'none'): THREE.Group {
+  const g = new THREE.Group();
+  const body = new THREE.Color(color);
+  const hsl = { h: 0, s: 0, l: 0 };
+  body.getHSL(hsl);
+  const legColor = new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.9), Math.max(0.03, hsl.l * 0.45));
+  g.add(new THREE.Mesh(buildBodyGeometry(), new THREE.MeshStandardMaterial({ color: body, roughness: 0.32 })));
+  g.add(new THREE.Mesh(buildEyes(0.085, 0.47, 0.4, 0.1), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.25 })));
+  g.add(new THREE.Mesh(buildEyes(0.048, 0.535, 0.41, 0.105), new THREE.MeshStandardMaterial({ color: '#15101f', roughness: 0.2 })));
+  const legGeo = buildLeg();
+  const legMat = new THREE.MeshStandardMaterial({ color: legColor, roughness: 0.5 });
+  for (let k = 0; k < LEGS; k++) {
+    const side = k < 3 ? -1 : 1;
+    const pair = k % 3;
+    const leg = new THREE.Mesh(legGeo, legMat);
+    leg.position.set(side * 0.08, 0.22, HIP_Z[pair]);
+    leg.rotation.set(0, (side < 0 ? Math.PI : 0) - side * LEG_YAW[pair], 0);
+    g.add(leg);
+  }
+  const hatGeo = hatGeometry(hat);
+  if (hatGeo) g.add(new THREE.Mesh(hatGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide })));
+  return g;
 }
 
 export interface AntCallbacks {
@@ -125,7 +151,10 @@ export class AntsView {
   private house = { x0: 0, x1: 0, z0: 0, z1: 0 };
   private door = { x: 0, z: 0 };
 
-  constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks, shape: PieceShape = 'cube') {
+  /** The accessory every ant wears (bought in the shop), if any. */
+  private hat: THREE.InstancedMesh | null = null;
+
+  constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks, shape: PieceShape = 'cube', hat: HatId = 'none') {
     this.board = board;
     this.sim = sim;
     this.cb = cb;
@@ -150,6 +179,15 @@ export class AntsView {
     );
     this.legs = new THREE.InstancedMesh(buildLeg(), new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAX_ANTS * LEGS);
     this.cubes = new THREE.InstancedMesh(pieceGeometry(shape, true), pieceMaterial(shape), MAX_ANTS);
+    const hatGeo = hatGeometry(hat);
+    if (hatGeo) {
+      this.hat = new THREE.InstancedMesh(hatGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide }), MAX_ANTS);
+      this.hat.castShadow = true;
+      this.hat.frustumCulled = false;
+      this.hat.count = 0;
+      this.hat.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.group.add(this.hat);
+    }
     this.cubes.castShadow = true;
     for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes]) {
       mesh.frustumCulled = false;
@@ -669,6 +707,7 @@ export class AntsView {
       this.body.setMatrixAt(n, this.m);
       this.eyes.setMatrixAt(n, this.m);
       this.pupils.setMatrixAt(n, this.m);
+      this.hat?.setMatrixAt(n, this.m);
       this.body.setColorAt(n, this.palette[a.color]);
       for (let k = 0; k < LEGS; k++) {
         const side = k < 3 ? -1 : 1;
@@ -705,6 +744,10 @@ export class AntsView {
     this.body.count = this.eyes.count = this.pupils.count = n;
     this.legs.count = legN;
     this.cubes.count = cubeN;
+    if (this.hat) {
+      this.hat.count = n;
+      this.hat.instanceMatrix.needsUpdate = true;
+    }
     for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes]) {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -712,7 +755,7 @@ export class AntsView {
   }
 
   dispose(): void {
-    for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes]) {
+    for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes, ...(this.hat ? [this.hat] : [])]) {
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
       mesh.dispose();

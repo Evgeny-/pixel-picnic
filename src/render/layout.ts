@@ -30,9 +30,9 @@ export interface LayoutInput {
   rows: number;
 }
 
-const BOX = 1.12;
-const SPACING = 1.55;
-const ROW = 1.4;
+const BOX = 1.2;
+const SPACING = 1.62;
+const ROW = 1.48;
 
 export function computeLayout(inp: LayoutInput): Layout {
   return inp.aspect > 1.15 ? landscape(inp) : portrait(inp);
@@ -45,21 +45,21 @@ function rowX(n: number, cx: number, spacing: number): number[] {
 function portrait(inp: LayoutInput): Layout {
   // The picture gets the full width (square pictures too); the ant house, the slots and the
   // visible queue rows are packed tightly below it.
-  const maxW = 9.6;
-  const maxH = 9.6;
+  const maxW = 9.2;
+  const maxH = 9.2;
   const cell = Math.min(maxW / inp.w, maxH / inp.h);
   const picW = cell * inp.w;
   const picH = cell * inp.h;
   const frame = 0.32;
   const picX0 = -picW / 2;
   const picZ0 = -picH;
-  const nest = { x: 0, z: 1.3 };
-  const slotZ = 2.85;
+  const nest = { x: 0, z: 1.42 };
+  const slotZ = 3.05;
   const slotSpacing = inp.slots > 5 ? Math.min(SPACING, 9.4 / inp.slots) : SPACING;
   const slot = rowX(inp.slots, 0, slotSpacing).map((x) => ({ x, z: slotZ }));
   const colSpacing = inp.columns > 5 ? 9.4 / inp.columns : SPACING;
   const queueCol = rowX(inp.columns, 0, colSpacing);
-  const queueZ0 = slotZ + 1.7;
+  const queueZ0 = slotZ + 1.95;
   const rowsVisible = inp.rows;
   const maxX = Math.max(picW / 2 + frame + cell * 0.35, (slot.length * slotSpacing) / 2, (inp.columns * colSpacing) / 2) + 0.08;
   return {

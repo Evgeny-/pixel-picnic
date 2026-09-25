@@ -39,7 +39,7 @@ function defaults(): SaveData {
     v: 1,
     level: 1,
     stars: {},
-    coins: 120,
+    coins: 50,
     boosters: { hint: 0, undo: 0, slot: 0, shuffle: 0, grab: 0 },
     seen: [],
     settings: { music: 0.5, sfx: 0.8, lang: null, speed: 1, debug: false },

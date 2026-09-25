@@ -6,7 +6,8 @@ import { shapeFor } from '../core/progression';
 import { BoardView, NIGHT_SHADE } from './BoardView';
 import { QueueView } from './QueueView';
 import { AntsView } from './AntsView';
-import { NestView } from './NestView';
+import { NestView, type HouseSkin } from './NestView';
+import type { HatId } from './hats';
 import { FxView } from './FxView';
 import { computeLayout, type Layout } from './layout';
 import { GroundView } from './GroundView';
@@ -60,6 +61,8 @@ export class GameView {
   private levelGroup = new THREE.Group();
   private zoomPunch = 0;
   private theme: WorldTheme | null = null;
+  /** Cosmetics from the shop, applied when a level loads. */
+  looks: { house: string; hat: string } = { house: 'cottage', hat: 'none' };
   private night = false;
 
   constructor(container: HTMLElement, cb: ViewCallbacks) {
@@ -105,8 +108,8 @@ export class GameView {
     this.board = new BoardView(sim, palette, theme.frame, shape);
     this.board.cubes.castShadow = !LOW_END;
     this.queue = new QueueView(sim, palette, level.queueHint ?? 'count');
-    this.nest = new NestView(theme.roof);
-    this.ants = new AntsView(palette, this.board, sim, this.cb, shape);
+    this.nest = new NestView(theme.roof, this.looks.house as HouseSkin);
+    this.ants = new AntsView(palette, this.board, sim, this.cb, shape, this.looks.hat as HatId);
     this.levelGroup.add(this.board.group, this.queue.group, this.nest.group, this.ants.group);
     this.theme = theme;
     this.ground.setTheme(theme);
@@ -178,7 +181,7 @@ export class GameView {
       h: this.sim.h,
       slots: this.sim.slots.length,
       columns: this.sim.columns.length,
-      rows: this.level.visibleRows ?? 4,
+      rows: this.level.visibleRows ?? 3,
     });
     const changed = force || !this.layout || l.mode !== this.layout.mode || l.slot.length !== this.layout.slot.length;
     this.layout = l;
@@ -212,7 +215,8 @@ export class GameView {
     this.camera.position.set(cx, dist * cos, cz + dist * sin);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(cx, 0, cz);
-    const shiftY = ((this.insets.bottom - this.insets.top) / 2) * upp;
+    // Screen y grows downwards, view y upwards: a taller bottom inset moves the content up.
+    const shiftY = ((this.insets.top - this.insets.bottom) / 2) * upp;
     const shiftX = ((this.insets.right - this.insets.left) / 2) * upp;
     this.camera.left = -halfW + shiftX;
     this.camera.right = halfW + shiftX;
@@ -257,7 +261,7 @@ export class GameView {
    * React to simulation events (after the sim already changed). `roundSec` is the game time of
    * one dispatch round, used to pace ants to the moment their cube is carried off.
    */
-  apply(events: SimEvent[], roundSec = 0.105): void {
+  apply(events: SimEvent[], roundSec = 0.4): void {
     let queueChanged = false;
     const slots = Math.max(1, this.sim.slots.length);
     for (const e of events) {

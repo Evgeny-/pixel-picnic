@@ -23,9 +23,9 @@ import type { Rng } from './rng';
 export const Where = { Queue: 0, Slot: 1, Done: 2 } as const;
 
 /** Rounds from the slots to the bottom middle of the picture, plus time to grab a cube. */
-const BASE_TRIP = 9;
+const BASE_TRIP = 4;
 /** Rounds to walk across the whole picture. */
-const CROSS_TRIP = 18;
+const CROSS_TRIP = 7;
 /** "Not reachable" walking distance. */
 const INF = 0x3fffffff;
 /** Distances are counted in half cells (the nest sits between two cells on even-width pictures). */
@@ -680,16 +680,18 @@ export class Sim {
     }
     for (let s = 0; s < this.slots.length; s++) {
       const sl = this.slots[s];
-      if (!sl) continue;
+      if (!sl || sl.left <= 0) continue;
       const cell = this.findTarget(sl.color);
       if (cell < 0) continue;
       this.claim(cell);
       sl.left--;
       activity++;
       ev?.push({ t: 'ant', slot: s, box: sl.box, cell, color: sl.color, left: sl.left, due: this.roundNo + this.tripTo(cell) });
-      if (sl.left <= 0) {
+      if (sl.left > 0) continue;
+      if (sl.box >= 0) this.release(sl.box, ev);
+      else {
+        // The level generator's virtual box.
         this.slots[s] = null;
-        if (sl.box >= 0) this.boxWhere[sl.box] = Where.Done;
         ev?.push({ t: 'boxDone', slot: s, box: sl.box });
       }
     }
@@ -702,11 +704,31 @@ export class Sim {
     return activity + this.pending.length;
   }
 
+  /**
+   * An empty box leaves its slot — but linked boxes stay chained together: an empty one waits in
+   * its slot until its partner is empty too, then both go.
+   */
+  private release(box: number, ev?: SimEvent[]): void {
+    const group = this.groupOf(box);
+    const slotOf = (id: number) => this.slots.findIndex((x) => x !== null && x.box === id);
+    for (const id of group) {
+      const k = slotOf(id);
+      if (k >= 0 && this.slots[k]!.left > 0) return;
+    }
+    for (const id of group) {
+      const k = slotOf(id);
+      if (k < 0) continue;
+      this.slots[k] = null;
+      if (id >= 0) this.boxWhere[id] = Where.Done;
+      ev?.push({ t: 'boxDone', slot: k, box: id });
+    }
+  }
+
   /** True when no ant can be dispatched and none is still on its way. */
   isQuiet(): boolean {
     if (this.pending.length) return false;
     for (const sl of this.slots) {
-      if (sl && this.findTarget(sl.color) >= 0) return false;
+      if (sl && sl.left > 0 && this.findTarget(sl.color) >= 0) return false;
     }
     return true;
   }

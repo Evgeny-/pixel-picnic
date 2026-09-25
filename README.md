@@ -29,10 +29,10 @@ Works in any modern browser, on phones and on desktop. No install, no ads, no ti
    its color and claims it. The piece stays in place until its ant has walked up and grabbed it —
    only then is the way to the pieces behind it free. The number on the box is how many ants are
    still inside.
-4. You only see the first **four rows** of the queue (five in some easier levels, just three in
-   many hard ones); deeper boxes rise into view as the columns move up. A small "+3" under a
-   column tells how many are still hidden — or, on trickier levels, only a "?" says that
-   something is. When a column runs out, the others close ranks.
+4. You only see the first **three rows** of the queue; deeper boxes rise into view as the columns
+   move up. A small "+3" under a column tells how many are still hidden — or, on trickier levels,
+   only a "?" says that something is. When a column runs out, the others close ranks. Linked
+   boxes stay chained in their slots until both are empty.
 5. When a box is empty, its slot frees up. But if every slot holds a color the ants can't reach
    yet, **the colony gets stuck**. Think a few bites ahead: which column hides the color you need,
    and which boxes can you afford to park on the way?
@@ -68,6 +68,11 @@ Every 5th level is **hard**, every 10th is **super hard**.
 
 - **Stars and album** — 3 stars without boosters, 2 with them, 1 if the colony got stuck and you
   rescued it. Every finished picture goes into your album.
+- **Coins** — 10 / 25 / 50 for a normal / hard / super hard level, +5 per star and a "Quick!"
+  bonus for beating the level's par time (replays pay a third). Spend them in the **shop** on
+  boosters, seven looks for the ant house (cottage, mushroom, log cabin, igloo, gingerbread,
+  pumpkin, castle tower) and accessories the whole colony wears (party hats, caps, bows,
+  flowers, sunglasses, top hats, Santa hats, crowns) — with 3D previews.
 - **Fast by default** — ants are quick, and 2× / 3× speed is free.
 - **Desktop extras** — hover a box to see which cubes its ants could reach right now.
 - **Always up to date** — the game notices a new deployment and reloads itself on the map.
@@ -82,7 +87,7 @@ Every 5th level is **hard**, every 10th is **super hard**.
   shortest-walk distance field over the free cells — from the nest around the frame to every
   unfenced border cell and on through the tunnels already eaten — and updates it incrementally as
   pieces disappear. Each color keeps a priority queue of reachable pieces keyed by that walk, so
-  every 160 ms (at 1×) each occupied slot lets one ant out, heading for the piece of its color that is really
+  every 400 ms (at 1×) each occupied slot lets one ant out, heading for the piece of its color that is really
   the closest on foot. The ant claims it, and the piece is carried off when the ant arrives — the
   trip time depends on the distance — which is when the cells behind it open up. The 3D view only animates the resulting events, so the game, the solver
   and the level generator share exactly the same rules.
@@ -103,8 +108,7 @@ Every 5th level is **hard**, every 10th is **super hard**.
   so the thinking doesn't end after the first taps (the random player is re-measured from a third
   of the way in). A fourth, **thinking player** plans two or three taps ahead but — like you — only
   sees the visible queue rows: it should win most normal levels (they're fair), about half of the
-  hard ones and seldom a super hard one, so showing four rows instead of five is a real
-  difficulty lever. On top of that the generator counts **critical decisions** — moments on the
+  hard ones and seldom a super hard one. On top of that the generator counts **critical decisions** — moments on the
   way to victory where a wrong box leads into a dead end: about six per normal level and eight or
   more on hard ones. Fewer queue columns, four slots and fences are extra difficulty levers.
 - **Pictures** — about 300 curated emoji from three open sets (Fluent, Twemoji and Noto, whose

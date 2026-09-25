@@ -22,21 +22,27 @@ export interface BoosterView {
   usable: boolean;
 }
 
-const BOOSTER_ICON: Record<BoosterId, EmojiName | 'undo' | 'shuffle' | 'slot'> = {
-  hint: 'light-bulb',
-  undo: 'undo',
-  slot: 'slot',
-  shuffle: 'shuffle',
-  grab: 'magnet',
-};
+/** Drawn icons for the boosters that have no fitting emoji. */
+const UNDO_SVG =
+  '<svg class="emo" width="SIZE" height="SIZE" viewBox="0 0 36 36" aria-hidden="true">' +
+  '<path d="M27 24A10 10 0 0 0 10 13" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"/>' +
+  '<path d="M27 24A10 10 0 0 0 10 13" fill="none" stroke="#ff8a3d" stroke-width="5" stroke-linecap="round"/>' +
+  '<path d="M7.5 20.5L3.8 10.8 14.6 11.6Z" fill="#ff8a3d" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>' +
+  '</svg>';
+const SLOT_SVG =
+  '<svg class="emo" width="SIZE" height="SIZE" viewBox="0 0 36 36" aria-hidden="true">' +
+  '<rect x="1.5" y="10" width="33" height="17" rx="5" fill="#e9c58c" stroke="#fff" stroke-width="1.5"/>' +
+  '<rect x="5" y="13.5" width="6.5" height="10" rx="2" fill="#c79a5b"/><rect x="13.5" y="13.5" width="6.5" height="10" rx="2" fill="#c79a5b"/>' +
+  '<rect x="21.5" y="11.5" width="11" height="14" rx="3" fill="#45c03a" stroke="#fff" stroke-width="1.2"/>' +
+  '<path d="M27 15v7M23.5 18.5h7" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>' +
+  '</svg>';
 
-function boosterIcon(b: BoosterId): string {
-  const i = BOOSTER_ICON[b];
-  if (i === 'undo' || i === 'shuffle' || i === 'slot') {
-    const color = i === 'undo' ? '#ff8a3d' : i === 'shuffle' ? '#3aa0ff' : '#35b84a';
-    return `<span style="color:${color}">${lineIcon(i, 34)}</span>`;
-  }
-  return emoji(i, 36);
+/** Illustrated icon for each booster: a light bulb, a back arrow, a new slot, a die, a magnet. */
+export function boosterIcon(b: BoosterId, size = 34): string {
+  if (b === 'undo') return UNDO_SVG.replaceAll('SIZE', String(size));
+  if (b === 'slot') return SLOT_SVG.replaceAll('SIZE', String(Math.round(size * 1.06)));
+  const name: Record<BoosterId, EmojiName> = { hint: 'light-bulb', undo: 'light-bulb', slot: 'light-bulb', shuffle: 'game-die', grab: 'magnet' };
+  return emoji(name[b], size);
 }
 
 /** In-game overlay: title, progress, pause/speed buttons and the booster dock. */
@@ -133,11 +139,13 @@ export class Hud {
     for (const b of BOOSTERS) {
       const btn = this.boosterBtns.get(b)!;
       const s = state[b];
-      btn.className = 'booster' + (s.locked ? ' locked' : '') + (s.active ? ' active' : '') + (!s.locked && !s.usable ? ' dim' : '');
+      btn.className = `booster b-${b}` + (s.locked ? ' locked' : '') + (s.active ? ' active' : '') + (!s.locked && !s.usable ? ' dim' : '');
+      // A picture and a name, so every booster says what it does.
+      const face = `<span class="bicon">${boosterIcon(b)}</span><span class="bname">${t(`booster_${b}`)}</span>`;
       if (s.locked) {
-        btn.innerHTML = boosterIcon(b) + emoji('locked', 26, 'lock') + `<span class="lvl">${s.unlockAt}</span>`;
+        btn.innerHTML = face + emoji('locked', 24, 'lock') + `<span class="lvl">${t('levelShort', { n: s.unlockAt })}</span>`;
       } else {
-        btn.innerHTML = boosterIcon(b) + (s.count > 0 ? `<span class="count">${s.count}</span>` : `<span class="plus">+</span>`);
+        btn.innerHTML = face + (s.count > 0 ? `<span class="count">${s.count}</span>` : `<span class="plus">+</span>`);
       }
     }
   }
