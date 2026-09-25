@@ -31,10 +31,10 @@ import type { EmojiName } from '../ui/emoji.generated';
 
 const MECH_ICON: Record<MechanicId, EmojiName> = {
   hidden: 'red-question-mark',
+  fence: 'construction',
   link: 'link',
-  top: 'ant',
   frozen: 'snowflake',
-  sides: 'world-map',
+  gate: 'door',
 };
 
 export class App {
@@ -245,7 +245,7 @@ export class App {
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       this.hud.setDebug(
         st
-          ? `casual ${pct(st.casual)} · greedy ${pct(st.greedy)} · 🧠 ${st.critical ?? '?'}/${st.decisions ?? '?'} · ${st.pixels} cubes · ${level.boxes.length} boxes`
+          ? `random ${st.random === undefined ? '?' : pct(st.random)} · casual ${pct(st.casual)} · greedy ${pct(st.greedy)} · 🧠 ${st.critical ?? '?'}/${st.decisions ?? '?'} · ${st.pixels} cubes · ${level.boxes.length} boxes`
           : `${level.boxes.length} boxes · ${level.picture.palette.length} col`,
       );
     }

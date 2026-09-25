@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Sim } from '../core/sim';
-import type { Side } from '../core/types';
+import type { Fence, PieceShape } from '../core/types';
+import { pieceGeometry, pieceMaterial } from './pieces';
 import { cellCenter, type Layout } from './layout';
 
 export const CUBE_H = 0.62;
@@ -68,28 +69,33 @@ export class BoardView {
   private readonly frameMat: THREE.MeshStandardMaterial;
   private readonly floorMat: THREE.MeshStandardMaterial;
 
-  private readonly sides: Side[];
-  private readonly gates = new THREE.Group();
-  private readonly gateGeo: THREE.BufferGeometry;
-  private readonly gateMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4, emissive: '#fff3c4', emissiveIntensity: 0.35 });
+  private readonly fenceDefs: Fence[];
+  private readonly fences = new THREE.Group();
+  private readonly picketGeo: THREE.BufferGeometry;
+  private readonly postGeo = new RoundedBoxGeometry(0.14, 0.5, 0.14, 2, 0.03);
+  private readonly capGeo = new THREE.SphereGeometry(0.085, 16, 12);
+  private readonly railGeo = new THREE.BoxGeometry(1, 0.055, 0.05);
+  /** Flat handrail on top: from the steep camera angle it keeps side fences readable. */
+  private readonly handGeo = new THREE.BoxGeometry(1, 0.035, 0.14);
+  private readonly fenceMat = new THREE.MeshStandardMaterial({ color: '#c0814a', roughness: 0.62 });
+  private readonly postMat = new THREE.MeshStandardMaterial({ color: '#8f5a31', roughness: 0.66 });
+  private readonly capMat = new THREE.MeshStandardMaterial({ color: '#ff9f1a', roughness: 0.3, emissive: '#ff8a00', emissiveIntensity: 0.25 });
 
-  constructor(sim: Sim, palette: string[], frameColor = '#efd3a0') {
+  constructor(sim: Sim, palette: string[], frameColor = '#efd3a0', shape: PieceShape = 'cube') {
     this.w = sim.w;
     this.h = sim.h;
-    this.sides = sim.s.sides;
-    // Chevron pointing to -Z (into the picture from the bottom edge once rotated).
-    const shape = new THREE.Shape();
-    shape.moveTo(-0.16, 0.05);
-    shape.lineTo(0, -0.1);
-    shape.lineTo(0.16, 0.05);
-    shape.lineTo(0.16, 0.13);
-    shape.lineTo(0, -0.02);
-    shape.lineTo(-0.16, 0.13);
-    shape.closePath();
-    this.gateGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.05, bevelEnabled: false });
-    this.gateGeo.rotateX(-Math.PI / 2);
-    this.gateGeo.rotateY(Math.PI);
-    this.group.add(this.gates);
+    this.fenceDefs = sim.s.fences;
+    // A picket: a thin board with a pointed top, standing on y = 0, facing ±Z.
+    const pk = new THREE.Shape();
+    pk.moveTo(-0.048, 0);
+    pk.lineTo(0.048, 0);
+    pk.lineTo(0.048, 0.33);
+    pk.lineTo(0, 0.4);
+    pk.lineTo(-0.048, 0.33);
+    pk.closePath();
+    this.picketGeo = new THREE.ExtrudeGeometry(pk, { depth: 0.05, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 1 });
+    this.picketGeo.translate(0, 0, -0.025);
+    this.group.add(this.fences);
     const n = sim.w * sim.h;
     this.instOf = new Int32Array(n).fill(-1);
     this.cellColor = new Int16Array(n);
@@ -103,10 +109,8 @@ export class BoardView {
     }
     this.present = new Uint8Array(n);
     this.colors = palette.map((c) => new THREE.Color(c));
-    // Cubes are small on screen: one bevel segment keeps the look at a third of the triangles.
-    const geo = new RoundedBoxGeometry(0.94, CUBE_H, 0.94, 1, 0.14);
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.42, metalness: 0.0, envMapIntensity: 0.9 });
-    this.cubes = new THREE.InstancedMesh(geo, mat, Math.max(1, cells.length));
+    // Pieces are small on screen: low segment counts keep the triangle budget down.
+    this.cubes = new THREE.InstancedMesh(pieceGeometry(shape), pieceMaterial(shape), Math.max(1, cells.length));
     this.cubes.castShadow = true;
     this.cubes.receiveShadow = true;
     this.cubes.count = cells.length;
@@ -121,7 +125,7 @@ export class BoardView {
   setLayout(l: Layout): void {
     this.layoutRef = l;
     this.buildFrame(l);
-    this.buildGates(l);
+    this.buildFences(l);
     for (let i = 0; i < this.w * this.h; i++) if (this.instOf[i] >= 0) this.writeMatrix(i, this.present[i] ? 1 : 0, 0);
     this.cubes.instanceMatrix.needsUpdate = true;
     this.cubes.computeBoundingSphere();
@@ -131,30 +135,89 @@ export class BoardView {
     return this.layoutRef;
   }
 
-  /** Little chevrons on the rim showing where ants can get in. */
-  private buildGates(l: Layout): void {
-    this.gates.clear();
+  /**
+   * Picket fences on the rim where ants can't get in. A gap in a fence is a gate, marked by two
+   * posts with orange knobs.
+   */
+  private buildFences(l: Layout): void {
+    for (const c of this.fences.children) if (c instanceof THREE.InstancedMesh) c.dispose();
+    this.fences.clear();
+    if (!this.fenceDefs.length) return;
     const pad = l.cell * 0.35;
-    const x0 = l.picX0 - pad - l.frame / 2;
-    const x1 = l.picX0 + l.picW + pad + l.frame / 2;
-    const z0 = l.picZ0 - pad - l.frame / 2;
-    const z1 = l.picZ0 + l.picH + pad + l.frame / 2;
-    const y = Math.max(0.06, Math.min(0.2, l.cell * 0.32)) + 0.16;
-    const put = (x: number, z: number, rot: number) => {
-      const m = new THREE.Mesh(this.gateGeo, this.gateMat);
-      m.position.set(x, y, z);
-      m.rotation.y = rot;
-      m.userData.base = y;
-      this.gates.add(m);
+    const edge = {
+      x0: l.picX0 - pad - l.frame / 2,
+      x1: l.picX0 + l.picW + pad + l.frame / 2,
+      z0: l.picZ0 - pad - l.frame / 2,
+      z1: l.picZ0 + l.picH + pad + l.frame / 2,
     };
-    for (const side of this.sides) {
-      for (const k of [0.2, 0.5, 0.8]) {
-        if (side === 'bottom') put(x0 + (x1 - x0) * k, z1, Math.PI);
-        else if (side === 'top') put(x0 + (x1 - x0) * k, z0, 0);
-        else if (side === 'left') put(x0, z0 + (z1 - z0) * k, -Math.PI / 2);
-        else put(x1, z0 + (z1 - z0) * k, Math.PI / 2);
+    const top = 0.1 + Math.max(0.06, Math.min(0.2, l.cell * 0.32));
+    type Run = { horiz: boolean; fixed: number; a: number; b: number; gateA: boolean; gateB: boolean };
+    const runs: Run[] = [];
+    for (const f of this.fenceDefs) {
+      const horiz = f.side === 'top' || f.side === 'bottom';
+      const len = horiz ? this.w : this.h;
+      const from = Math.max(0, f.from);
+      const to = Math.min(len, f.to);
+      if (to <= from) continue;
+      const base = horiz ? l.picX0 : l.picZ0;
+      const lo = horiz ? edge.x0 : edge.z0;
+      const hi = horiz ? edge.x1 : edge.z1;
+      runs.push({
+        horiz,
+        fixed: f.side === 'top' ? edge.z0 : f.side === 'bottom' ? edge.z1 : f.side === 'left' ? edge.x0 : edge.x1,
+        a: from === 0 ? lo : base + from * l.cell,
+        b: to === len ? hi : base + to * l.cell,
+        gateA: from > 0,
+        gateB: to < len,
+      });
+    }
+    const pickets: THREE.Matrix4[] = [];
+    const posts: THREE.Matrix4[] = [];
+    const caps: THREE.Matrix4[] = [];
+    const rails: THREE.Matrix4[] = [];
+    const hands: THREE.Matrix4[] = [];
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const pos = new THREE.Vector3();
+    const sc = new THREE.Vector3(1, 1, 1);
+    const at = (r: Run, t: number, y: number) => (r.horiz ? pos.set(t, y, r.fixed) : pos.set(r.fixed, y, t));
+    const spacing = 0.135;
+    for (const r of runs) {
+      q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, r.horiz ? 0 : Math.PI / 2);
+      const len = r.b - r.a;
+      const n = Math.max(1, Math.round(len / spacing));
+      for (let k = 0; k <= n; k++) {
+        const t = r.a + (len * k) / n;
+        const jitter = 0.94 + (((k * 7919) % 13) / 13) * 0.1;
+        sc.set(1, jitter, 1);
+        pickets.push(m.compose(at(r, t, top), q, sc).clone());
+      }
+      sc.set(1, 1, 1);
+      sc.set(len, 1, 1);
+      rails.push(m.compose(at(r, (r.a + r.b) / 2, top + 0.1), q, sc).clone());
+      hands.push(m.compose(at(r, (r.a + r.b) / 2, top + 0.3), q, sc).clone());
+      sc.set(1, 1, 1);
+      for (const [t, gate] of [[r.a, r.gateA], [r.b, r.gateB]] as const) {
+        // Gate posts are taller and wear bright knobs so the opening is easy to spot.
+        sc.set(1, gate ? 1.25 : 1, 1);
+        posts.push(m.compose(at(r, t, top + (gate ? 0.31 : 0.25)), q, sc).clone());
+        sc.set(1, 1, 1);
+        if (gate) caps.push(m.compose(at(r, t, top + 0.68), q, sc).clone());
       }
     }
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, list: THREE.Matrix4[]) => {
+      if (!list.length) return;
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach((mm, i) => im.setMatrixAt(i, mm));
+      im.castShadow = true;
+      im.receiveShadow = true;
+      this.fences.add(im);
+    };
+    add(this.picketGeo, this.fenceMat, pickets);
+    add(this.railGeo, this.postMat, rails);
+    add(this.handGeo, this.postMat, hands);
+    add(this.postGeo, this.postMat, posts);
+    add(this.capGeo, this.capMat, caps);
   }
 
   private buildFrame(l: Layout): void {
@@ -337,13 +400,6 @@ export class BoardView {
 
   update(dt: number): void {
     this.clock += dt;
-    let i = 0;
-    for (const g of this.gates.children) {
-      const k = (Math.sin(this.clock * 3 - i * 0.7) + 1) / 2;
-      g.position.y = (g.userData.base as number) + k * 0.06;
-      g.scale.setScalar(0.9 + k * 0.2);
-      i++;
-    }
     if (!this.anims.length) return;
     const keep: CubeAnim[] = [];
     for (const a of this.anims) {
@@ -380,7 +436,8 @@ export class BoardView {
     this.floorMat.map?.dispose();
     this.frameMat.dispose();
     this.floorMat.dispose();
-    this.gateGeo.dispose();
-    this.gateMat.dispose();
+    for (const c of this.fences.children) if (c instanceof THREE.InstancedMesh) c.dispose();
+    for (const g of [this.picketGeo, this.postGeo, this.capGeo, this.railGeo, this.handGeo]) g.dispose();
+    for (const mt of [this.fenceMat, this.postMat, this.capMat]) mt.dispose();
   }
 }

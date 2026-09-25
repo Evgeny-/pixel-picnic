@@ -1,6 +1,6 @@
 import { Rng } from './rng';
 import type { GenParams } from './generator';
-import type { Side, Tier } from './types';
+import type { Fence, PieceShape, Side, Tier } from './types';
 
 export type BoosterId = 'hint' | 'undo' | 'slot' | 'shuffle' | 'grab';
 export const BOOSTERS: BoosterId[] = ['hint', 'undo', 'slot', 'shuffle', 'grab'];
@@ -10,8 +10,8 @@ export const BOOSTER_PRICE: Record<BoosterId, number> = { hint: 30, undo: 40, sh
 /** Free boosters granted when a booster unlocks. */
 export const BOOSTER_GIFT = 2;
 
-export type MechanicId = 'hidden' | 'link' | 'top' | 'frozen' | 'sides';
-export const MECHANIC_LEVEL: Record<MechanicId, number> = { hidden: 8, link: 12, top: 18, frozen: 25, sides: 34 };
+export type MechanicId = 'hidden' | 'fence' | 'link' | 'frozen' | 'gate';
+export const MECHANIC_LEVEL: Record<MechanicId, number> = { hidden: 7, fence: 11, link: 14, frozen: 22, gate: 31 };
 
 export const LEVELS_PER_WORLD = 20;
 
@@ -24,11 +24,35 @@ export function coinsFor(tier: Tier, stars: number): number {
   return base + stars * 3;
 }
 
+/** A fenced side of the frame, optionally with a gate (an opening `gate` cells wide). */
+export interface FenceSpec {
+  side: Side;
+  gate?: number;
+}
+
 export interface LevelPlan {
   gridSize: number;
   colors: number;
   background: boolean;
+  fences: FenceSpec[];
   params: GenParams;
+}
+
+/** Concrete fences for a picture of w×h cells. */
+export function buildFences(specs: FenceSpec[], w: number, h: number, seed: number): Fence[] {
+  const rng = new Rng(seed * 7919 + 13);
+  const out: Fence[] = [];
+  for (const f of specs) {
+    const len = f.side === 'top' || f.side === 'bottom' ? w : h;
+    if (!f.gate || f.gate >= len - 2) {
+      out.push({ side: f.side, from: 0, to: len });
+      continue;
+    }
+    const at = rng.int(Math.min(2, len - f.gate), Math.max(0, len - f.gate - 2));
+    if (at > 0) out.push({ side: f.side, from: 0, to: at });
+    if (at + f.gate < len) out.push({ side: f.side, from: at + f.gate, to: len });
+  }
+  return out;
 }
 
 /** Deterministic plan for level n: picture size, palette size and generator knobs. */
@@ -69,23 +93,34 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
   const boxMin = Math.max(4, Math.round(avg * 0.6));
   const boxMax = Math.max(boxMin + 2, Math.round(avg * 1.45));
 
-  // Extra entrances make levels easier, so super hard levels keep the single bottom entrance.
-  const sides: Side[] = ['bottom'];
-  if (n === MECHANIC_LEVEL.top || (n > MECHANIC_LEVEL.top && !sh && rng.chance(0.3))) sides.push('top');
-  if (n === MECHANIC_LEVEL.sides || (n > MECHANIC_LEVEL.sides && !sh && rng.chance(0.18))) {
-    sides.push(rng.chance(0.5) ? 'left' : 'right');
-    if (rng.chance(0.4)) sides.push(sides.includes('left') ? 'right' : 'left');
+  // Ants come from every side of the frame; fences close some of them (and gates open a gap in a
+  // fence). Fewer entrances make the picture peel in a stricter order.
+  const fences: FenceSpec[] = [];
+  if (n === MECHANIC_LEVEL.fence) fences.push({ side: 'top' });
+  else if (n === MECHANIC_LEVEL.gate) fences.push({ side: 'top' }, { side: 'left' }, { side: 'right' }, { side: 'bottom', gate: 5 });
+  else if (n > MECHANIC_LEVEL.fence && rng.chance(sh ? 0.75 : hard ? 0.6 : 0.4)) {
+    const sets: Side[][] = [['top'], ['left'], ['right'], ['top', 'left'], ['top', 'right'], ['left', 'right'], ['top', 'left', 'right']];
+    const pick = sets[Math.min(sets.length - 1, rng.int(0, 3) + (sh ? 3 : hard ? 2 : 0))];
+    for (const side of pick) fences.push({ side });
+    if (n > MECHANIC_LEVEL.gate && rng.chance(0.45)) {
+      // A gate in one of the fences, or in the bottom when every other side is closed.
+      const f = pick.length === 3 && rng.chance(0.5) ? { side: 'bottom' as Side } : fences[rng.int(0, fences.length - 1)];
+      if (!fences.includes(f)) fences.push(f);
+      f.gate = rng.int(3, 6);
+    }
   }
-  if (sides.length > 1) colors = Math.min(9, colors + 1);
 
   const hiddenOn = n === MECHANIC_LEVEL.hidden || (n > MECHANIC_LEVEL.hidden && rng.chance(0.55));
   const linkOn = n === MECHANIC_LEVEL.link || (n > MECHANIC_LEVEL.link && rng.chance(0.55));
   const frozenOn = n === MECHANIC_LEVEL.frozen || (n > MECHANIC_LEVEL.frozen && rng.chance(0.4));
 
+  // Fewer queue columns leave fewer ways out of a bad spot: a difficulty lever of its own.
+  const columns = n <= 3 ? 4 : sh ? rng.pick([3, 3, 4]) : hard ? rng.pick([3, 4, 4, 5]) : rng.pick([4, 4, 5]);
+
   const params: GenParams = {
-    columns: n <= 2 ? 3 : sh && w >= 2 ? 5 : 4,
-    slots: 5,
-    sides,
+    columns,
+    slots: n <= 5 ? 5 : 4,
+    fences: [],
     boxMin,
     boxMax,
     dig: sh ? 0.55 : hard ? 0.4 : n <= 10 ? 0.12 : 0.22,
@@ -94,7 +129,17 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
     links: linkOn ? (n === MECHANIC_LEVEL.link ? 2 : rng.int(1, 3)) : 0,
     frozen: frozenOn ? (n === MECHANIC_LEVEL.frozen ? 2 : rng.int(1, 2)) : 0,
   };
-  return { gridSize, colors, background, params };
+  return { gridSize, colors, background, fences, params };
+}
+
+/** Piece shape of level n: plain cubes first, then a different look for most pictures. */
+export function shapeFor(n: number): PieceShape {
+  if (n <= 3) return 'cube';
+  const order: PieceShape[] = ['coin', 'cube', 'hex', 'candy', 'diamond', 'cube', 'hex', 'coin', 'diamond', 'candy'];
+  const rng = new Rng(n * 40503 + 17);
+  const pick = order[(n + rng.int(0, 2)) % order.length];
+  // Never the same shape twice in a row.
+  return n > 4 && pick === shapeFor(n - 1) ? order[(order.indexOf(pick) + 1) % order.length] : pick;
 }
 
 export function mechanicsIntroducedAt(n: number): MechanicId[] {

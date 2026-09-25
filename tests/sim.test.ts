@@ -3,7 +3,7 @@ import { Sim, type SimEvent } from '../src/core/sim';
 import { solve, estimateDifficulty, criticalDecisions } from '../src/core/solver';
 import { generateLevel, replay } from '../src/core/generator';
 import { Rng } from '../src/core/rng';
-import type { BoxDef, LevelDef, PictureDef, Side } from '../src/core/types';
+import { SIDES, type BoxDef, type Fence, type LevelDef, type PictureDef, type Side } from '../src/core/types';
 
 // A=0, B=1. Row 0 is the top row.
 const PIC: PictureDef = {
@@ -14,8 +14,13 @@ const PIC: PictureDef = {
   cells: '0011' + '0110' + '1001',
 };
 
-function level(boxes: BoxDef[], columns: number[][], slots = 2, sides: Side[] = ['bottom'], picture = PIC): LevelDef {
-  return { n: 1, world: 0, tier: 'normal', picture, slots, sides, boxes, columns };
+/** Fences on every side except the given ones. */
+function openOnly(...open: Side[]): Fence[] {
+  return SIDES.filter((s) => !open.includes(s)).map((side) => ({ side, from: 0, to: 99 }));
+}
+
+function level(boxes: BoxDef[], columns: number[][], slots = 2, fences: Fence[] = openOnly('bottom'), picture = PIC): LevelDef {
+  return { n: 1, world: 0, tier: 'normal', picture, slots, fences, boxes, columns };
 }
 
 describe('Sim', () => {
@@ -45,7 +50,7 @@ describe('Sim', () => {
   });
 
   it('opening the top side exposes the top row too', () => {
-    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }], [[0]], 1, ['bottom', 'top']));
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }], [[0]], 1, openOnly('bottom', 'top')));
     const exp = sim.exposedCounts();
     // bottom row: B A A B, top row: A A B B
     expect(exp[0]).toBe(4);
@@ -58,7 +63,7 @@ describe('Sim', () => {
     //   A . A
     //   A . B
     const pic: PictureDef = { id: 'cave', w: 3, h: 3, palette: ['#f00', '#00f'], cells: 'AAA'.replace(/A/g, '0') + '0.0' + '0.1' };
-    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }, { id: 1, color: 1, count: 1 }], [[0], [1]], 2, ['bottom'], pic));
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }, { id: 1, color: 1, count: 1 }], [[0], [1]], 2, openOnly('bottom'), pic));
     const exp = sim.exposedCounts();
     // Through the empty corridor the ants reach (0,2), (0,1), (2,1) and (1,0).
     expect(exp[0]).toBe(4);
@@ -72,7 +77,7 @@ describe('Sim', () => {
   it('eating a cube opens the cubes around it, not only the one behind', () => {
     // bottom row: B B B, middle: A A A, top: A A A (bottom open)
     const pic: PictureDef = { id: 'rows', w: 3, h: 3, palette: ['#f00', '#00f'], cells: '000' + '000' + '111' };
-    const sim = Sim.fromLevel(level([{ id: 0, color: 1, count: 1 }], [[0]], 1, ['bottom'], pic));
+    const sim = Sim.fromLevel(level([{ id: 0, color: 1, count: 1 }], [[0]], 1, openOnly('bottom'), pic));
     sim.take(0);
     sim.settle();
     // One B eaten in the middle: the A above it becomes reachable, and so do its free-space neighbours.
@@ -82,11 +87,45 @@ describe('Sim', () => {
   });
 
   it('left/right sides expose row ends', () => {
-    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }], [[0]], 1, ['left']));
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }], [[0]], 1, openOnly('left')));
     const exp = sim.exposedCounts();
     // first cells of rows: A, A, B
     expect(exp[0]).toBe(2);
     expect(exp[1]).toBe(1);
+  });
+
+  it('without fences ants come in from every side', () => {
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }], [[0]], 1, []));
+    // Every border cube: the whole 4x3 picture except the two middle cells of row 1.
+    const exp = sim.exposedCounts();
+    expect(exp[0] + exp[1]).toBe(10);
+  });
+
+  it('a gate lets ants in only through its gap', () => {
+    // Everything fenced except bottom cells 1..2 (a two-cell gate): bottom row is B A A B.
+    const fences: Fence[] = [...openOnly('bottom'), { side: 'bottom', from: 0, to: 1 }, { side: 'bottom', from: 3, to: 4 }];
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }], [[0]], 1, fences));
+    const exp = sim.exposedCounts();
+    expect(exp[0]).toBe(2);
+    expect(exp[1]).toBe(0);
+  });
+
+  it('a cube stays in place until its ant has carried it off', () => {
+    const sim = Sim.fromLevel(level([{ id: 0, color: 0, count: 6 }, { id: 1, color: 1, count: 6 }], [[0], [1]]));
+    sim.take(0);
+    const ev: SimEvent[] = [];
+    sim.round(ev);
+    const ant = ev.find((e) => e.t === 'ant') as Extract<SimEvent, { t: 'ant' }>;
+    expect(ant).toBeTruthy();
+    // Claimed but not eaten: nobody else goes for it and the cube behind it is still closed.
+    expect(sim.eaten[ant.cell]).toBe(0);
+    expect(sim.claimed[ant.cell]).toBe(1);
+    expect(sim.isQuiet()).toBe(false);
+    const ev2: SimEvent[] = [];
+    while (sim.roundNo < ant.due) sim.round(ev2);
+    sim.round(ev2);
+    expect(ev2.some((e) => e.t === 'pickup' && e.cell === ant.cell)).toBe(true);
+    expect(sim.eaten[ant.cell]).toBe(1);
   });
 
   it('linked boxes need to be taken together and need two slots', () => {
@@ -159,7 +198,7 @@ describe('solver', () => {
   it('counts critical decisions: taking the buried color first is a dead end', () => {
     // top row A A, bottom row B B, one slot: B must go first.
     const pic: PictureDef = { id: 'trap', w: 2, h: 2, palette: ['#f00', '#00f'], cells: '00' + '11' };
-    const lvl = level([{ id: 0, color: 0, count: 2 }, { id: 1, color: 1, count: 2 }], [[0], [1]], 1, ['bottom'], pic);
+    const lvl = level([{ id: 0, color: 0, count: 2 }, { id: 1, color: 1, count: 2 }], [[0], [1]], 1, openOnly('bottom'), pic);
     lvl.solution = solve(Sim.fromLevel(lvl)).moves;
     expect(lvl.solution).toEqual([1, 0]);
     expect(criticalDecisions(lvl)).toEqual({ critical: 1, decisions: 1 });
@@ -195,7 +234,7 @@ describe('generator', () => {
     for (let s = 1; s <= 4; s++) {
       const res = generateLevel(
         blobPicture(s),
-        { columns: 4, slots: 5, sides: ['bottom'], boxMin: 8, boxMax: 20, dig: 0.3, spread: 0.5, hiddenFrac: 0.2, links: 2, frozen: 1 },
+        { columns: 4, slots: 5, fences: [], boxMin: 8, boxMax: 20, dig: 0.3, spread: 0.5, hiddenFrac: 0.2, links: 2, frozen: 1 },
         { casual: [0.2, 0.9] },
         s,
         8,

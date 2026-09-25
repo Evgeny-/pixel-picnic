@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Sim } from '../core/sim';
+import type { PieceShape } from '../core/types';
+import { pieceGeometry, pieceMaterial } from './pieces';
 import type { Layout } from './layout';
 import type { BoardView } from './BoardView';
 
@@ -82,6 +83,8 @@ interface Ant {
   wait: number;
   /** Number of waypoints (at the end of `pts`) inside the frame, walked back on the way home. */
   back: number;
+  /** Walking speed multiplier, chosen so the ant reaches the cube in time. */
+  spd: number;
 }
 
 const HIP_Z = [0.15, 0.07, -0.01];
@@ -114,8 +117,10 @@ export class AntsView {
   private sim: Sim;
   private bfsDist = new Int32Array(0);
   private bfsPrev = new Int32Array(0);
+  /** Cubes the rules have already released for pickup. */
+  private ready = new Set<number>();
 
-  constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks) {
+  constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks, shape: PieceShape = 'cube') {
     this.board = board;
     this.sim = sim;
     this.cb = cb;
@@ -139,11 +144,7 @@ export class AntsView {
       MAX_ANTS,
     );
     this.legs = new THREE.InstancedMesh(buildLeg(), new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAX_ANTS * LEGS);
-    this.cubes = new THREE.InstancedMesh(
-      new RoundedBoxGeometry(1, 0.62, 1, 1, 0.14),
-      new THREE.MeshStandardMaterial({ roughness: 0.42 }),
-      MAX_ANTS,
-    );
+    this.cubes = new THREE.InstancedMesh(pieceGeometry(shape, true), pieceMaterial(shape), MAX_ANTS);
     this.cubes.castShadow = true;
     for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes]) {
       mesh.frustumCulled = false;
@@ -192,6 +193,7 @@ export class AntsView {
   /** Remove every ant immediately (undo / restart). */
   clear(): void {
     this.ants.length = 0;
+    this.ready.clear();
   }
 
   /** Fade out ants that are still walking (e.g. after an undo). */
@@ -200,16 +202,27 @@ export class AntsView {
       a.phase = 'fade';
       a.timer = 0;
     }
+    this.ready.clear();
   }
 
-  spawn(from: THREE.Vector3, cell: number, color: number): void {
-    if (this.ants.length >= MAX_ANTS) {
-      // Too many ants on screen: resolve instantly.
+  /** The rules say this cube has just been carried off: its ant may take it now. */
+  pickup(cell: number): void {
+    this.ready.add(cell);
+    if (!this.ants.some((a) => a.cell === cell && (a.phase === 'out' || a.phase === 'bite'))) {
+      // No ant on screen for it (e.g. too many ants): just remove the cube.
       this.board.remove(cell);
+      this.ready.delete(cell);
       this.cb.onPick(cell);
       this.cb.onDeliver();
-      return;
     }
+  }
+
+  /**
+   * An ant leaves a slot for `cell`. `dueIn` is how many game seconds the rules give it before the
+   * cube is carried off; the ant paces itself to arrive a moment earlier and nibbles until then.
+   */
+  spawn(from: THREE.Vector3, cell: number, color: number, dueIn = 2): void {
+    if (this.ants.length >= MAX_ANTS) return;
     const seed = Math.random();
     const sx = from.x + (seed - 0.5) * 0.3;
     const sz = from.z + 0.2;
@@ -221,9 +234,12 @@ export class AntsView {
     const ant: Ant = {
       color, cell, pts, cum: [], dist: 0, phase: 'out', timer: 0, yaw: Math.PI, legPhase: seed * 6,
       startY: from.y, seed, line: plan.block, lineD: [], x: pts[0], z: pts[1], y: from.y, scale: 0.2,
-      wait: 0, back: plan.inside.length / 2,
+      wait: 0, back: plan.inside.length / 2, spd: 1,
     };
     this.measure(ant);
+    const len = ant.cum[ant.cum.length - 1];
+    const base = 3.3;
+    ant.spd = Math.max(0.7, Math.min(2.2, len / Math.max(0.3, dueIn - 0.3) / base));
     // Blocking distances were measured along the inside part; shift them to the full path.
     const entryDist = ant.cum[entryIndex];
     ant.lineD = plan.blockD.map((d) => entryDist + d);
@@ -539,7 +555,7 @@ export class AntsView {
           }
         }
         const before = a.dist;
-        a.dist = Math.min(limit, a.dist + spd * dt * (0.9 + a.seed * 0.2));
+        a.dist = Math.min(limit, a.dist + spd * dt * (a.phase === 'out' ? a.spd : 1) * (0.95 + a.seed * 0.1));
         if (a.dist < before) a.dist = before;
         moving = a.dist > before + 1e-5;
         if (!moving && a.dist < total - 1e-4) {
@@ -559,8 +575,10 @@ export class AntsView {
           }
         }
       } else if (a.phase === 'bite') {
+        // Nibble until the rules say the cube is carried off.
         a.timer += dt * this.speed;
-        if (a.timer > 0.2) {
+        if (a.timer > 0.15 && this.ready.has(a.cell)) {
+          this.ready.delete(a.cell);
           this.board.remove(a.cell);
           this.cb.onPick(a.cell);
           this.goHome(a);

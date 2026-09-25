@@ -60,8 +60,8 @@ const STRINGS = {
   gotIt: { ru: 'Понятно!', en: 'Got it!' },
   tutorial1: { ru: 'Нажми на коробку — муравьи выбегут и съедят кубики своего цвета', en: 'Tap a box — its ants will run out and eat cubes of their color' },
   tutorial2: {
-    ru: 'Муравьи дотянутся до кубика, если к нему есть проход от открытой стороны рамки',
-    en: 'Ants can reach a cube if there is a free way to it from an open side of the frame',
+    ru: 'Муравьи заходят в рамку с любой стороны и берут кубик, если к нему есть свободный проход',
+    en: 'Ants come into the frame from any side and take a cube if there is a free way to it',
   },
   debug: { ru: 'Режим отладки', en: 'Debug mode' },
   debugHint: { ru: 'Все уровни открыты, видна сложность', en: 'All levels unlocked, difficulty visible' },
@@ -79,23 +79,23 @@ const STRINGS = {
   },
   mech_link_t: { ru: 'Связанные коробки', en: 'Linked boxes' },
   mech_link_d: {
-    ru: 'Коробки на верёвочке берутся только вместе и занимают два слота.',
-    en: 'Roped boxes are taken together and need two free slots.',
+    ru: 'Коробки на цепочке берутся только вместе и занимают два слота.',
+    en: 'Chained boxes are taken together and need two free slots.',
   },
-  mech_top_t: { ru: 'Второй вход', en: 'Second entrance' },
-  mech_top_d: {
-    ru: 'Муравьи прокопали туннель: теперь они грызут картинку ещё и сверху!',
-    en: 'The ants dug a tunnel: now they can nibble the picture from the top too!',
+  mech_fence_t: { ru: 'Заборчик', en: 'Fence' },
+  mech_fence_d: {
+    ru: 'Через заборчик муравьи не пролезут — заходить придётся с других сторон рамки.',
+    en: 'Ants can’t get past a fence — they have to come in from the other sides of the frame.',
   },
   mech_frozen_t: { ru: 'Лёд', en: 'Ice' },
   mech_frozen_d: {
     ru: 'Замороженную коробку нельзя взять. Число на льду — сколько ходов осталось до оттаивания.',
     en: 'A frozen box can’t be taken. The number shows how many taps until it thaws.',
   },
-  mech_sides_t: { ru: 'Боковые входы', en: 'Side entrances' },
-  mech_sides_d: {
-    ru: 'Теперь муравьи могут подобраться к картинке слева и справа.',
-    en: 'Now ants can reach the picture from the left and right sides too.',
+  mech_gate_t: { ru: 'Калитка', en: 'Gate' },
+  mech_gate_d: {
+    ru: 'В заборе есть калитка с оранжевыми столбиками — муравьи пройдут только через неё.',
+    en: 'The fence has a gate between orange-topped posts — that’s the only way in.',
   },
   boosterUnlocked: { ru: 'Новый бустер!', en: 'New booster!' },
   free: { ru: 'бесплатно ×{n}', en: '×{n} free' },

@@ -1,31 +1,40 @@
-import { decodeCells, SIDES, type LevelDef, type Side } from './types';
+import { decodeCells, SIDES, type Fence, type LevelDef, type Side } from './types';
 import type { Rng } from './rng';
 
 /**
  * Deterministic game logic, shared by the game, the solver and the level generator.
  *
  * Rules:
- * - The picture is a grid of colored cubes inside a frame. Ants come in through the open sides of
- *   the frame (bottom by default) and walk over free space: empty cells and cells whose cube has
- *   already been eaten. A cube is reachable when an ant can walk up to it, i.e. it touches the
- *   outside through an open side or touches free space connected to the outside.
+ * - The picture is a grid of colored cubes inside a frame. Ants walk around the frame and come in
+ *   from any side that isn't fenced off (fences may leave gates). Inside they walk over free space:
+ *   empty cells and cells whose cube has been carried away. A cube is reachable when an ant can
+ *   walk up to it from any direction.
  * - The player taps boxes at the front of the queue columns; a box moves into the leftmost free slot.
- * - Every dispatch round, each occupied slot (left to right) sends one ant to the best reachable
- *   cube of its color (closest to an entrance). The cube is claimed immediately (logically eaten),
- *   which may open a way to the cubes behind it. A box whose ants are all out frees its slot.
- * - The level is won when every cube is eaten. It is stuck when nothing can be dispatched and no
+ * - Every dispatch round, each occupied slot (left to right) sends one ant to the closest reachable
+ *   cube of its color. The ant claims the cube (no other ant will go for it), but the cube stays
+ *   in place until the ant has walked there and carried it off; only then does it free the way to
+ *   the cubes behind it. A box whose ants are all out frees its slot.
+ * - The level is won when every cube is gone. It is stuck when nothing can happen any more and no
  *   box can be taken (typically: every slot holds a color with no reachable cube).
  */
 
 export const Where = { Queue: 0, Slot: 1, Done: 2 } as const;
 
+/** Rounds from the slots to the bottom middle of the picture, plus time to grab a cube. */
+const BASE_TRIP = 14;
+/** Rounds to walk across the whole picture. */
+const CROSS_TRIP = 28;
+
 export interface SlotState {
+  /** Box id, or -1 for a virtual box used by the level generator. */
   box: number;
+  color: number;
   left: number;
 }
 
 export type SimEvent =
-  | { t: 'ant'; slot: number; box: number; cell: number; color: number; left: number }
+  | { t: 'ant'; slot: number; box: number; cell: number; color: number; left: number; due: number }
+  | { t: 'pickup'; cell: number }
   | { t: 'boxDone'; slot: number; box: number }
   | { t: 'take'; box: number; slot: number; col: number; index: number; grabbed?: boolean }
   | { t: 'reveal'; box: number }
@@ -43,35 +52,44 @@ interface Shared {
   cell: Int16Array;
   zobA: Int32Array;
   zobB: Int32Array;
-  /** Static preference of a cube: closest to an open side first, then closest to the middle. */
+  /** Walking distance estimate from the slots to a cube: which cube an ant prefers. */
   prio: Int32Array;
+  /** Rounds an ant needs to reach a cube (the cube is carried off after that). */
+  trip: Int16Array;
   /** For border cells: bitmask of open sides they touch (1 bottom, 2 top, 4 left, 8 right). */
   edge: Uint8Array;
-  /** Number of cubes of each color (heap capacity). */
   colorCount: Int32Array;
   boxColor: Int16Array;
   boxCount: Int16Array;
   boxLink: Int16Array;
   boxThaw: Int16Array;
-  /** link id -> member box ids */
   groups: Map<number, number[]>;
-  sides: Side[];
+  fences: Fence[];
+  /** Per side (SIDES order): at least one cell of it lets ants in. */
   open: boolean[];
 }
 
 export class Sim {
   readonly s: Shared;
+  /** Cube carried off. */
   eaten: Uint8Array;
+  /** Cube claimed by an ant that is on its way (still in place). */
+  claimed: Uint8Array;
   /** Free cell (empty or eaten) connected to the outside. */
   air: Uint8Array;
   /** Uneaten cube an ant can walk up to. */
   reach: Uint8Array;
-  /** Per color: binary min-heap of reachable cubes (lazy deletion of eaten ones). */
+  /** Per color: binary min-heap of reachable cubes (lazy deletion). */
   heaps: Int32Array[];
   heapSize: Int32Array;
+  /** Reachable and unclaimed cubes per color. */
   reachCount: Int32Array;
+  /** Cubes still in the picture per color (claimed ones included). */
   remaining: Int32Array;
   left: number;
+  /** Pending pickups: min-heap of (due round * 4096 + cell). */
+  pending: number[];
+  roundNo: number;
   boxHidden: Uint8Array;
   boxWhere: Uint8Array;
   boxCol: Int16Array;
@@ -85,6 +103,7 @@ export class Sim {
   private constructor(s: Shared) {
     this.s = s;
     this.eaten = new Uint8Array(0);
+    this.claimed = new Uint8Array(0);
     this.air = new Uint8Array(0);
     this.reach = new Uint8Array(0);
     this.heaps = [];
@@ -92,6 +111,8 @@ export class Sim {
     this.reachCount = new Int32Array(0);
     this.remaining = new Int32Array(0);
     this.left = 0;
+    this.pending = [];
+    this.roundNo = 0;
     this.boxHidden = new Uint8Array(0);
     this.boxWhere = new Uint8Array(0);
     this.boxCol = new Int16Array(0);
@@ -119,33 +140,44 @@ export class Sim {
       seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
       zobB[i] = seed;
     }
-    const sides = level.sides.length ? level.sides.slice() : (['bottom'] as Side[]);
-    const open = SIDES.map((sd) => sides.includes(sd));
+    // Which border cells ants can enter through (per side, along the side).
+    const fences = level.fences ?? [];
+    const gate = SIDES.map((sd) => {
+      const len = sd === 'bottom' || sd === 'top' ? w : h;
+      const row = new Uint8Array(len).fill(1);
+      for (const f of fences) if (f.side === sd) for (let k = Math.max(0, f.from); k < Math.min(len, f.to); k++) row[k] = 0;
+      return row;
+    });
+    const open = gate.map((row) => row.includes(1));
 
+    // Ants come from below the middle of the picture (slots and nest are there), walk around the
+    // frame to an entrance and then straight to the cube: that walk decides which cube they prefer
+    // and how long the trip takes.
     const prio = new Int32Array(n);
+    const trip = new Int16Array(n);
     const edge = new Uint8Array(n);
+    const cx = (w - 1) / 2;
+    const maxDim = Math.max(w, h);
+    const [gB, gT, gL, gR] = gate;
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
         const i = y * w + x;
-        let depth = 1 << 20;
-        let center = 0;
-        const consider = (d: number, c: number) => {
-          if (d < depth || (d === depth && c < center)) {
-            depth = d;
-            center = c;
-          }
-        };
-        const cx = Math.round(Math.abs(x - (w - 1) / 2) * 2);
-        const cy = Math.round(Math.abs(y - (h - 1) / 2) * 2);
-        if (open[0]) consider(h - 1 - y, cx);
-        if (open[1]) consider(y, cx);
-        if (open[2]) consider(x, cy);
-        if (open[3]) consider(w - 1 - x, cy);
-        prio[i] = depth * 256 + center;
-        if (open[0] && y === h - 1) edge[i] |= 1;
-        if (open[1] && y === 0) edge[i] |= 2;
-        if (open[2] && x === 0) edge[i] |= 4;
-        if (open[3] && x === w - 1) edge[i] |= 8;
+        let best = Infinity;
+        for (let ex = 0; ex < w; ex++) {
+          if (gB[ex]) best = Math.min(best, Math.abs(ex - cx) + Math.abs(ex - x) + (h - 1 - y));
+          if (gT[ex]) best = Math.min(best, cx + h + Math.min(ex, w - 1 - ex) + Math.abs(ex - x) + y);
+        }
+        for (let ey = 0; ey < h; ey++) {
+          if (gL[ey]) best = Math.min(best, cx + (h - 1 - ey) + x + Math.abs(ey - y));
+          if (gR[ey]) best = Math.min(best, cx + (h - 1 - ey) + (w - 1 - x) + Math.abs(ey - y));
+        }
+        if (!Number.isFinite(best)) best = 2 * (w + h);
+        prio[i] = Math.round(best * 64);
+        trip[i] = BASE_TRIP + Math.round((CROSS_TRIP * best) / maxDim);
+        if (y === h - 1 && gB[x]) edge[i] |= 1;
+        if (y === 0 && gT[x]) edge[i] |= 2;
+        if (x === 0 && gL[y]) edge[i] |= 4;
+        if (x === w - 1 && gR[y]) edge[i] |= 8;
       }
 
     const colorCount = new Int32Array(colors);
@@ -170,10 +202,11 @@ export class Sim {
     }
 
     const sim = new Sim({
-      w, h, colors, cell, zobA, zobB, prio, edge, colorCount,
-      boxColor, boxCount, boxLink, boxThaw, groups, sides, open,
+      w, h, colors, cell, zobA, zobB, prio, trip, edge, colorCount,
+      boxColor, boxCount, boxLink, boxThaw, groups, fences, open,
     });
     sim.eaten = new Uint8Array(n);
+    sim.claimed = new Uint8Array(n);
     sim.air = new Uint8Array(n);
     sim.reach = new Uint8Array(n);
     sim.heaps = Array.from({ length: colors }, (_, c) => new Int32Array(Math.max(1, colorCount[c])));
@@ -181,7 +214,6 @@ export class Sim {
     sim.reachCount = new Int32Array(colors);
     sim.remaining = Int32Array.from(colorCount);
     sim.left = colorCount.reduce((a, b) => a + b, 0);
-    // Flood the free space from every open side.
     const queue: number[] = [];
     for (let i = 0; i < n; i++) {
       if (!edge[i]) continue;
@@ -213,6 +245,7 @@ export class Sim {
   clone(): Sim {
     const c = new Sim(this.s);
     c.eaten = this.eaten.slice();
+    c.claimed = this.claimed.slice();
     c.air = this.air.slice();
     c.reach = this.reach.slice();
     c.heaps = this.heaps.map((hp, k) => {
@@ -224,11 +257,13 @@ export class Sim {
     c.reachCount = this.reachCount.slice();
     c.remaining = this.remaining.slice();
     c.left = this.left;
+    c.pending = this.pending.slice();
+    c.roundNo = this.roundNo;
     c.boxHidden = this.boxHidden.slice();
     c.boxWhere = this.boxWhere.slice();
     c.boxCol = this.boxCol.slice();
     c.columns = this.columns.map((col) => col.slice());
-    c.slots = this.slots.map((sl) => (sl ? { box: sl.box, left: sl.left } : null));
+    c.slots = this.slots.map((sl) => (sl ? { box: sl.box, color: sl.color, left: sl.left } : null));
     c.taps = this.taps;
     c.status = this.status;
     c.hashA = this.hashA;
@@ -243,7 +278,7 @@ export class Sim {
 
   cellColor(i: number): number { return this.s.cell[i]; }
 
-  /** Free cell (no cube or eaten). */
+  /** Free cell (no cube or carried off). */
   isFree(i: number): boolean {
     return this.s.cell[i] < 0 || this.eaten[i] === 1;
   }
@@ -251,6 +286,10 @@ export class Sim {
   /** Bitmask of open sides a border cell touches. */
   edgeMask(i: number): number {
     return this.s.edge[i];
+  }
+
+  isOpen(side: Side): boolean {
+    return this.s.open[SIDES.indexOf(side)];
   }
 
   private less(a: number, b: number): boolean {
@@ -264,7 +303,6 @@ export class Sim {
     this.reach[i] = 1;
     const color = this.s.cell[i];
     this.reachCount[color]++;
-    // heap push
     const hp = this.heaps[color];
     let k = this.heapSize[color]++;
     hp[k] = i;
@@ -324,41 +362,81 @@ export class Sim {
     }
   }
 
-  /** Best reachable cube of `color` (closest to an entrance), or -1. */
+  /** Closest reachable, unclaimed cube of `color`, or -1. */
   findTarget(color: number): number {
     const hp = this.heaps[color];
-    while (this.heapSize[color] > 0 && this.eaten[hp[0]]) this.heapPop(color);
+    while (this.heapSize[color] > 0 && (this.eaten[hp[0]] || this.claimed[hp[0]])) this.heapPop(color);
     return this.heapSize[color] > 0 ? hp[0] : -1;
   }
 
-  /** Number of reachable cubes per color (index = color). */
+  /** Reachable, unclaimed cubes per color (index = color). */
   exposedCounts(out?: Int32Array): Int32Array {
     const res = out ?? new Int32Array(this.s.colors);
     res.set(this.reachCount);
     return res;
   }
 
-  /** Every reachable cube. */
+  /** Every reachable, unclaimed cube. */
   exposedCells(): number[] {
     const res: number[] = [];
-    for (let i = 0; i < this.reach.length; i++) if (this.reach[i]) res.push(i);
+    for (let i = 0; i < this.reach.length; i++) if (this.reach[i] && !this.claimed[i]) res.push(i);
     return res;
   }
 
+  /** An ant sets off for this cube. */
+  private claim(i: number): void {
+    this.claimed[i] = 1;
+    if (this.reach[i]) this.reachCount[this.s.cell[i]]--;
+    this.pending.push((this.roundNo + this.s.trip[i]) * 4096 + i);
+    // sift up
+    let k = this.pending.length - 1;
+    const pd = this.pending;
+    while (k > 0) {
+      const p = (k - 1) >> 1;
+      if (pd[p] <= pd[k]) break;
+      const t = pd[k];
+      pd[k] = pd[p];
+      pd[p] = t;
+      k = p;
+    }
+  }
+
+  private popPending(): number {
+    const pd = this.pending;
+    const top = pd[0];
+    const last = pd.pop()!;
+    if (pd.length) {
+      pd[0] = last;
+      let k = 0;
+      for (;;) {
+        const l = k * 2 + 1;
+        const r = l + 1;
+        let m = k;
+        if (l < pd.length && pd[l] < pd[m]) m = l;
+        if (r < pd.length && pd[r] < pd[m]) m = r;
+        if (m === k) break;
+        const t = pd[k];
+        pd[k] = pd[m];
+        pd[m] = t;
+        k = m;
+      }
+    }
+    return top;
+  }
+
+  /** The cube is carried off: free its cell and open the way to its neighbours. */
   eatCell(i: number): void {
     const { w, h, cell, zobA, zobB, edge } = this.s;
     if (this.eaten[i] || cell[i] < 0) return;
     this.eaten[i] = 1;
     const color = cell[i];
+    if (this.reach[i] && !this.claimed[i]) this.reachCount[color]--;
+    this.reach[i] = 0;
+    this.claimed[i] = 0;
     this.remaining[color]--;
     this.left--;
     this.hashA ^= zobA[i];
     this.hashB ^= zobB[i];
-    if (this.reach[i]) {
-      this.reach[i] = 0;
-      this.reachCount[color]--;
-    }
-    // The freed cell joins the air if it touches the outside or existing air.
     const x = i % w;
     const y = (i - x) / w;
     let connected = edge[i] !== 0;
@@ -374,6 +452,19 @@ export class Sim {
     }
   }
 
+  /** Complete every pickup that is still on its way (used when restoring an undo snapshot). */
+  flushPending(ev?: SimEvent[]): void {
+    while (this.pending.length) {
+      const cell = this.popPending() % 4096;
+      this.eatCell(cell);
+      ev?.push({ t: 'pickup', cell });
+    }
+    if (this.left === 0 && this.status === 'playing') {
+      this.status = 'won';
+      ev?.push({ t: 'won' });
+    }
+  }
+
   // ---------------------------------------------------------------- boxes
 
   boxColor(id: number): number { return this.s.boxColor[id]; }
@@ -386,7 +477,6 @@ export class Sim {
     return this.taps < this.s.boxThaw[id];
   }
 
-  /** Taps remaining until the box thaws (0 if not frozen). */
   frozenLeft(id: number): number {
     return Math.max(0, this.s.boxThaw[id] - this.taps);
   }
@@ -408,7 +498,6 @@ export class Sim {
     return -1;
   }
 
-  /** True if the box is at the front of its column, or only has members of its own group in front of it. */
   isAvailable(id: number): boolean {
     if (this.boxWhere[id] !== Where.Queue) return false;
     const col = this.columns[this.boxCol[id]];
@@ -420,7 +509,6 @@ export class Sim {
     return false;
   }
 
-  /** Whether the group containing `id` can be taken right now. */
   canTake(id: number): boolean {
     if (this.status !== 'playing') return false;
     const group = this.groupOf(id);
@@ -433,7 +521,6 @@ export class Sim {
     return true;
   }
 
-  /** Why a box can't be taken — for UI feedback. */
   whyNot(id: number): 'ok' | 'frozen' | 'blocked' | 'slots' | 'link' | 'gone' {
     if (this.boxWhere[id] !== Where.Queue) return 'gone';
     const group = this.groupOf(id);
@@ -444,7 +531,6 @@ export class Sim {
     return 'ok';
   }
 
-  /** Representative box ids of every legal take (one per group). */
   legalMoves(): number[] {
     const res: number[] = [];
     if (this.status !== 'playing' || this.freeSlots() === 0) return res;
@@ -462,20 +548,26 @@ export class Sim {
     return res;
   }
 
-  /** Take a box (and its linked partners) into slots. */
   take(id: number, ev?: SimEvent[]): boolean {
     if (!this.canTake(id)) return false;
     this.moveToSlots(this.groupOf(id), ev, false);
     return true;
   }
 
-  /** Booster: take any non-frozen box from anywhere in the queue. */
   grab(id: number, ev?: SimEvent[]): boolean {
     if (this.status !== 'playing' || this.boxWhere[id] !== Where.Queue) return false;
     const group = this.groupOf(id);
     if (group.length > this.freeSlots()) return false;
     for (const m of group) if (this.boxWhere[m] !== Where.Queue || this.isFrozen(m)) return false;
     this.moveToSlots(group, ev, true);
+    return true;
+  }
+
+  /** Generator helper: put a virtual box of `color` with `count` ants into a free slot. */
+  putVirtual(color: number, count: number): boolean {
+    const slot = this.firstFreeSlot();
+    if (slot < 0) return false;
+    this.slots[slot] = { box: -1, color, left: count };
     return true;
   }
 
@@ -486,7 +578,7 @@ export class Sim {
       const index = col.indexOf(m);
       col.splice(index, 1);
       const slot = this.firstFreeSlot();
-      this.slots[slot] = { box: m, left: this.s.boxCount[m] };
+      this.slots[slot] = { box: m, color: this.s.boxColor[m], left: this.s.boxCount[m] };
       this.boxWhere[m] = Where.Slot;
       this.boxCol[m] = -1;
       if (this.boxHidden[m]) {
@@ -513,13 +605,11 @@ export class Sim {
     }
   }
 
-  /** Booster: one more slot. */
   addSlot(): void {
     this.slots.push(null);
     if (this.status === 'stuck') this.status = 'playing';
   }
 
-  /** Booster: shuffle plain (not linked, not frozen) boxes of the queue among their positions. */
   shuffle(rng: Rng, ev?: SimEvent[]): void {
     const positions: [number, number][] = [];
     const ids: number[] = [];
@@ -542,48 +632,57 @@ export class Sim {
 
   // ---------------------------------------------------------------- dispatch
 
-  /** One dispatch round: every occupied slot (left to right) sends at most one ant. Returns ants sent. */
+  /**
+   * One round: cubes whose ants have arrived are carried off, then every occupied slot (left to
+   * right) sends at most one ant. Returns > 0 while anything is still going on.
+   */
   round(ev?: SimEvent[]): number {
     if (this.status !== 'playing') return 0;
-    let sent = 0;
+    let activity = 0;
+    while (this.pending.length && Math.floor(this.pending[0] / 4096) <= this.roundNo) {
+      const cell = this.popPending() % 4096;
+      this.eatCell(cell);
+      activity++;
+      ev?.push({ t: 'pickup', cell });
+    }
     for (let s = 0; s < this.slots.length; s++) {
       const sl = this.slots[s];
       if (!sl) continue;
-      const color = this.s.boxColor[sl.box];
-      const cell = this.findTarget(color);
+      const cell = this.findTarget(sl.color);
       if (cell < 0) continue;
-      this.eatCell(cell);
+      this.claim(cell);
       sl.left--;
-      sent++;
-      ev?.push({ t: 'ant', slot: s, box: sl.box, cell, color, left: sl.left });
+      activity++;
+      ev?.push({ t: 'ant', slot: s, box: sl.box, cell, color: sl.color, left: sl.left, due: this.roundNo + this.s.trip[cell] });
       if (sl.left <= 0) {
         this.slots[s] = null;
-        this.boxWhere[sl.box] = Where.Done;
+        if (sl.box >= 0) this.boxWhere[sl.box] = Where.Done;
         ev?.push({ t: 'boxDone', slot: s, box: sl.box });
       }
     }
+    this.roundNo++;
     if (this.left === 0 && this.status === 'playing') {
       this.status = 'won';
       ev?.push({ t: 'won' });
+      return activity;
     }
-    return sent;
+    return activity + this.pending.length;
   }
 
-  /** True when no ant can be dispatched right now. */
+  /** True when no ant can be dispatched and none is still on its way. */
   isQuiet(): boolean {
+    if (this.pending.length) return false;
     for (const sl of this.slots) {
-      if (sl && this.findTarget(this.s.boxColor[sl.box]) >= 0) return false;
+      if (sl && this.findTarget(sl.color) >= 0) return false;
     }
     return true;
   }
 
-  /** Run rounds until nothing moves; then detect a stuck position. */
   settle(ev?: SimEvent[]): void {
     while (this.status === 'playing' && this.round(ev) > 0) { /* keep going */ }
     this.checkStuck(ev);
   }
 
-  /** Call when quiet: marks the level stuck if no move is possible. */
   checkStuck(ev?: SimEvent[]): boolean {
     if (this.status !== 'playing') return this.status === 'stuck';
     if (this.left > 0 && this.isQuiet() && this.legalMoves().length === 0) {
@@ -594,18 +693,16 @@ export class Sim {
     return false;
   }
 
-  /** Reverts a 'stuck' status (after a booster changed the position). */
   unstick(): void {
     if (this.status === 'stuck') this.status = 'playing';
   }
 
-  /** Compact key of the whole position, for memoization. */
   key(): string {
     let k = '';
     for (const col of this.columns) k += col.length + ',';
     k += '|';
     for (const sl of this.slots) k += sl ? sl.box + ':' + sl.left + ',' : '-,';
-    return k + '|' + this.hashA + ',' + this.hashB + '|' + this.taps;
+    return k + '|' + this.hashA + ',' + this.hashB + '|' + this.taps + '|' + this.pending.length;
   }
 
   queueSize(): number {

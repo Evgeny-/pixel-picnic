@@ -19,17 +19,18 @@ Works in any modern browser, on phones and on desktop. No install, no ads, no ti
 
 ## How to play
 
-1. Every level is a picture made of colored cubes lying in a wooden tray.
-2. Ants come in through the open sides of the frame (the little white arrows) — at first just the
-   bottom — and walk over free space. **A cube is reachable when there's a free way to it**: from
-   outside, or through the tunnels and gaps already eaten into the picture, from any side of the
-   cube.
-3. Tap a box at the front of the queue. It hops into one of the **five slots** and its ants run
-   out; each ant fetches one reachable cube of its color. The number on the box is how many ants
-   are still inside.
+1. Every level is a picture made of colored pieces lying in a wooden tray — cubes, coins, candies,
+   hexagons or diamonds, a different look for different pictures.
+2. Ants walk around the frame and come in **from any side** that isn't fenced off, then walk over
+   free space. **A piece is reachable when there's a free way to it**: from outside, or through the
+   tunnels and gaps already eaten into the picture, from any side of the piece.
+3. Tap a box at the front of the queue. It hops into a free **slot** (five in the first levels,
+   four later) and its ants run out; each ant heads for a reachable piece of its color and claims
+   it. The piece stays in place until its ant has walked up and grabbed it — only then is the way
+   to the pieces behind it free. The number on the box is how many ants are still inside.
 4. When a box is empty, its slot frees up. But if every slot holds a color the ants can't reach
-   yet, **the colony gets stuck**. Think a few bites ahead: every cube you remove uncovers the one
-   behind it.
+   yet, **the colony gets stuck**. Think a few bites ahead: which column hides the color you need,
+   and which boxes can you afford to park on the way?
 
 Every 5th level is **hard**, every 10th is **super hard**.
 
@@ -42,12 +43,13 @@ Every 5th level is **hard**, every 10th is **super hard**.
 
   | From level | Mechanic |
   |---:|---|
-  | 1 | Boxes, five slots, ants coming in from the bottom (with a short tutorial) |
-  | 8 | **Mystery boxes** `?` — the color shows only when the box reaches the front |
-  | 12 | **Roped boxes** — linked pairs are taken together and need two free slots |
-  | 18 | **Second entrance** — ants also nibble the picture from the top |
-  | 25 | **Ice** — a frozen box can't be taken until a few more taps have been made |
-  | 34 | **Side entrances** — rows become reachable from the left and right |
+  | 1 | Boxes, five slots, ants coming in from every side (with a short tutorial) |
+  | 6 | Four slots |
+  | 7 | **Mystery boxes** `?` — the color shows only when the box reaches the front |
+  | 11 | **Fences** — ants can't get in through a fenced side of the frame |
+  | 14 | **Chained boxes** — linked pairs are taken together and need two free slots |
+  | 22 | **Ice** — a frozen box can't be taken until a few more taps have been made |
+  | 31 | **Gates** — the only way in is a narrow gap in the fence |
 
 - **Boosters bought with the coins you earn:**
 
@@ -68,10 +70,12 @@ Every 5th level is **hard**, every 10th is **super hard**.
 ## Under the hood
 
 - **Deterministic rules engine** ([`src/core/sim.ts`](src/core/sim.ts)). Free space is flood-filled
-  from the open sides, and each color keeps a priority queue of reachable cubes. Every 105 ms (at
-  1×) each occupied slot sends one ant to the reachable cube of its color that is closest to an
-  entrance and claims it immediately. The 3D view only animates the resulting events, so the game,
-  the solver and the level generator share exactly the same rules.
+  from every unfenced border cell, and each color keeps a priority queue of reachable pieces. Every
+  105 ms (at 1×) each occupied slot sends one ant to the reachable piece of its color that is
+  closest to the nest (walking around the frame to an entrance). The ant claims it, and the piece
+  is carried off when the ant arrives — the trip time depends on the distance — which is when the
+  cells behind it open up. The 3D view only animates the resulting events, so the game, the solver
+  and the level generator share exactly the same rules.
 - **Ant paths** — every ant plans its own route: a breadth-first search over the free cells picks
   the entrance that's most convenient from its slot, the route is smoothed into straight runs, and
   ants politely wait behind cubes that another ant hasn't carried away yet.
@@ -79,18 +83,23 @@ Every 5th level is **hard**, every 10th is **super hard**.
   ends proves that every level can be finished. The Hint booster runs it live and tells you when
   your position has become unwinnable.
 - **Difficulty is measured, not guessed** ([`src/core/generator.ts`](src/core/generator.ts)). The
-  generator builds a queue around a known solution, plays hundreds of simulated games with a
-  "casual" and a "greedy" player, and tunes the queue (solver-checked local search) until the win
-  rates land in the band for that level's tier. On top of that it counts **critical decisions** —
-  moments on the way to victory where a wrong box leads into a dead end. No level can be won by
-  tapping at random: even the first ones need at least one real decision, super hard ones need six
-  or more and beat the greedy heuristic.
+  generator builds a queue around a known solution, then plays hundreds of simulated games with
+  three players — one tapping **at random**, a "casual" one who only takes colors the ants can
+  reach, and a greedy one — and tunes the queue (solver-checked local search: swapping, merging,
+  splitting and moving boxes) until the win rates land in the band for the level's tier. Random
+  tapping wins at most ~10% of normal levels after the first few, ~2% of hard ones and practically
+  never on super hard ones; hard levels are also tuned so the thinking doesn't end after the first
+  taps (the random player is re-measured from a third of the way in). On top of that it counts
+  **critical decisions** — moments on the way to victory where a wrong box leads into a dead end:
+  even the first level has some, super hard ones need five or more and beat the greedy heuristic.
+  Fewer queue columns and fences are extra difficulty levers.
 - **Pictures** — emoji artwork is rasterized, reduced to 3–9 clean colors with k‑means in OKLab,
   cleaned of stray pixels, and placed on patterned backgrounds at 14×13 to 44×44 cubes
   ([`scripts/lib/pixelart.ts`](scripts/lib/pixelart.ts)).
-- **Rendering** — three.js with instanced voxels, hundreds of instanced ants with animated legs,
-  soft shadows, a painted ground per world and ambient particles (pollen, leaves, fireflies,
-  snow…). Phones get a lighter render path automatically.
+- **Rendering** — three.js with instanced pieces (five shapes), hundreds of instanced ants with
+  animated legs, picket fences and gates, golden chains between linked boxes, an ant hill made of
+  loose soil grains, soft shadows, a painted ground per world and ambient particles (pollen,
+  leaves, fireflies, snow…). Phones get a lighter render path automatically.
 - **Sound** — every effect and the generative music of each world are synthesized with the Web
   Audio API; there are no audio files.
 
@@ -117,7 +126,7 @@ Regenerate content (uses [Bun](https://bun.sh)):
 
 ```bash
 bun scripts/build-pictures.ts   # contact sheets for reviewing the pixel art in .cache/sheets
-bun scripts/build-levels.ts     # campaign → src/data/levels.json (about a minute)
+bun scripts/build-levels.ts     # campaign → src/data/levels.json (a few minutes)
 bun scripts/build-icons.ts      # UI icons
 ```
 

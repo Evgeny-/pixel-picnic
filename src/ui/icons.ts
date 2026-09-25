@@ -5,7 +5,7 @@ const LINE: Record<string, string> = {
   pause: '<path d="M9 6v12M15 6v12"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
   ff: '<path d="M4 6.5v11l7.5-5.5zM12.5 6.5v11l7.5-5.5z" fill="currentColor"/>',
-  undo: '<path d="M9 7L4.5 11.5 9 16"/><path d="M5 11.5h8.5a5.5 5.5 0 010 11H11" transform="translate(0 -3)"/>',
+  undo: '<path d="M9 13.5L4 8.5l5-5"/><path d="M4.5 8.5H14a5.5 5.5 0 010 11h-3.5"/>',
   shuffle: '<path d="M3.5 7h3.2c2.2 0 3.4 1 4.6 3l1.4 2.4c1.2 2 2.4 3 4.6 3h3.2"/><path d="M3.5 16.4h3.2c1.4 0 2.4-.4 3.2-1.2M13.7 8.2c.8-.8 1.8-1.2 3.2-1.2h3.6"/><path d="M18 4.5l2.5 2.5L18 9.5M18 13l2.5 2.5L18 18"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',

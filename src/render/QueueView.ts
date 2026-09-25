@@ -38,8 +38,12 @@ interface BoxVis {
 interface LinkVis {
   a: number;
   b: number;
-  mesh: THREE.Mesh;
+  /** A short golden chain between the two boxes. */
+  chain: THREE.InstancedMesh;
 }
+
+const CHAIN_MAX = 14;
+const AXIS_X = new THREE.Vector3(1, 0, 0);
 
 /** Queue columns, slot tray and the ant boxes themselves. */
 export class QueueView {
@@ -58,8 +62,14 @@ export class QueueView {
     envMapIntensity: 1.6,
     depthWrite: false,
   });
-  private readonly linkMat = new THREE.MeshStandardMaterial({ color: '#8a5a32', roughness: 0.55, emissive: '#3a2210', emissiveIntensity: 0.25 });
-  private readonly linkGeo = new THREE.CylinderGeometry(0.15, 0.15, 1, 14, 1);
+  private readonly linkMat = new THREE.MeshStandardMaterial({ color: '#e0b04a', roughness: 0.28, metalness: 0.85, envMapIntensity: 1.4 });
+  private readonly linkGeo = new THREE.TorusGeometry(0.075, 0.024, 8, 18);
+  private readonly lq = new THREE.Quaternion();
+  private readonly lq2 = new THREE.Quaternion();
+  private readonly lm = new THREE.Matrix4();
+  private readonly ls = new THREE.Vector3();
+  private readonly lp = new THREE.Vector3();
+  private readonly ldir = new THREE.Vector3();
   private readonly mysteryTex = mysteryTexture();
   private tray: THREE.Group | null = null;
   private readonly trayMat = new THREE.MeshStandardMaterial({ color: '#efd3a0', roughness: 0.62 });
@@ -69,7 +79,6 @@ export class QueueView {
   private colors: THREE.Color[];
   private readonly tmp = new THREE.Vector3();
   private readonly tmp2 = new THREE.Vector3();
-  private readonly up = new THREE.Vector3(0, 1, 0);
   private slotPulse = 0;
 
   constructor(sim: Sim, palette: string[]) {
@@ -86,10 +95,11 @@ export class QueueView {
       seen.add(l);
       const g = sim.groupOf(id);
       for (let k = 0; k + 1 < g.length; k++) {
-        const mesh = new THREE.Mesh(this.linkGeo, this.linkMat);
-        mesh.castShadow = true;
-        this.group.add(mesh);
-        this.links.push({ a: g[k], b: g[k + 1], mesh });
+        const chain = new THREE.InstancedMesh(this.linkGeo, this.linkMat, CHAIN_MAX);
+        chain.castShadow = true;
+        chain.frustumCulled = false;
+        this.group.add(chain);
+        this.links.push({ a: g[k], b: g[k + 1], chain });
       }
     }
   }
@@ -258,8 +268,9 @@ export class QueueView {
       b.mat.color.copy(b.color);
       if (frozen) b.label.draw(String(this.sim.frozenLeft(b.id)), { fill: '#eefaff', stroke: '#3d7fae', shadow: 'rgba(30,70,110,0.4)' });
       else {
+        // A finished box keeps showing 0 while it pops (its slot is already empty).
         const sl = this.sim.slots.find((s) => s?.box === b.id);
-        const n = sl ? sl.left : this.sim.boxCount(b.id);
+        const n = sl ? sl.left : this.sim.boxWhere[b.id] === Where.Done ? 0 : this.sim.boxCount(b.id);
         b.label.draw(String(n), labelStyle(b.color));
       }
     }
@@ -384,19 +395,7 @@ export class QueueView {
         b.ice.rotation.y = Math.sin(time * 1.3 + b.id) * 0.02;
       }
     }
-    for (const lk of this.links) {
-      const a = this.boxes.get(lk.a)!;
-      const b = this.boxes.get(lk.b)!;
-      const vis = a.group.visible && b.group.visible && a.where !== 'gone' && b.where !== 'gone' && a.fade > 0.3 && b.fade > 0.3;
-      lk.mesh.visible = vis;
-      if (!vis) continue;
-      this.tmp.copy(a.group.position).setY(a.group.position.y + BOX_H * s * 0.92);
-      this.tmp2.copy(b.group.position).setY(b.group.position.y + BOX_H * s * 0.92);
-      const len = this.tmp.distanceTo(this.tmp2);
-      lk.mesh.position.addVectors(this.tmp, this.tmp2).multiplyScalar(0.5);
-      lk.mesh.scale.set(s, Math.max(0.01, len - s * 0.5), s);
-      lk.mesh.quaternion.setFromUnitVectors(this.up, this.tmp2.sub(this.tmp).normalize());
-    }
+    for (const lk of this.links) this.updateChain(lk, s);
     if (this.slotPulse > 0) {
       this.slotPulse = Math.max(0, this.slotPulse - dt * 0.7);
       const k = Math.sin(this.slotPulse * Math.PI * 4) * this.slotPulse;
@@ -404,7 +403,44 @@ export class QueueView {
     }
   }
 
+  /** Lay the chain links from the side of one box to the side of the other, sagging a little. */
+  private updateChain(lk: LinkVis, s: number): void {
+    const a = this.boxes.get(lk.a)!;
+    const b = this.boxes.get(lk.b)!;
+    const vis = a.group.visible && b.group.visible && a.where !== 'gone' && b.where !== 'gone' && a.fade > 0.3 && b.fade > 0.3;
+    lk.chain.visible = vis;
+    if (!vis) return;
+    const pa = this.tmp.copy(a.group.position);
+    const pb = this.tmp2.copy(b.group.position);
+    const dir = this.ldir.subVectors(pb, pa).setY(0);
+    const centers = dir.length();
+    if (centers < 1e-4) {
+      lk.chain.count = 0;
+      return;
+    }
+    dir.divideScalar(centers);
+    // Start and end just inside the facing sides, at 55% of the box height.
+    const half = s * 0.5 * Math.min(1 / Math.max(Math.abs(dir.x), 1e-3), 1 / Math.max(Math.abs(dir.z), 1e-3), 1.4) - 0.05 * s;
+    const y0 = pa.y + BOX_H * s * 0.55;
+    const y1 = pb.y + BOX_H * s * 0.55;
+    const len = Math.max(0.05, centers - half * 2);
+    const n = Math.max(2, Math.min(CHAIN_MAX, Math.round(len / (0.13 * s)) + 1));
+    this.lq.setFromUnitVectors(AXIS_X, dir);
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 0.5 : i / (n - 1);
+      const d = half + len * t;
+      const sag = Math.sin(t * Math.PI) * Math.min(0.12, len * 0.18);
+      this.ls.set(pa.x + dir.x * d, y0 + (y1 - y0) * t - sag, pa.z + dir.z * d);
+      this.lq2.setFromAxisAngle(AXIS_X, i % 2 ? Math.PI / 2 : 0).premultiply(this.lq);
+      this.lm.compose(this.ls, this.lq2, this.lp.set(1.45 * s, s, s));
+      lk.chain.setMatrixAt(i, this.lm);
+    }
+    lk.chain.count = n;
+    lk.chain.instanceMatrix.needsUpdate = true;
+  }
+
   dispose(): void {
+    for (const lk of this.links) lk.chain.dispose();
     for (const b of this.boxes.values()) {
       b.mat.dispose();
       b.label.dispose();
@@ -433,10 +469,18 @@ function labelStyle(c: THREE.Color): { fill: string; stroke: string; shadow: str
   c.getHSL(hsl, THREE.SRGBColorSpace);
   const h = Math.round(hsl.h * 360);
   const s = Math.round(Math.min(0.75, hsl.s) * 100);
-  const light = hsl.l > 0.72;
+  if (hsl.l > 0.78) {
+    // White and pastel boxes: dark numbers with a light rim, or they'd vanish into the lid.
+    return {
+      fill: `hsl(${h}, ${Math.round(s * 0.6)}%, 30%)`,
+      stroke: `hsl(${h}, ${Math.round(s * 0.4)}%, 98%)`,
+      shadow: `hsla(${h}, ${s}%, 25%, 0.22)`,
+    };
+  }
+  const light = hsl.l > 0.66;
   return {
     fill: `hsl(${h}, ${Math.round(s * 0.5)}%, ${light ? 99 : 96}%)`,
-    stroke: `hsl(${h}, ${s}%, ${Math.round(Math.max(0.16, hsl.l * (light ? 0.5 : 0.42)) * 100)}%)`,
+    stroke: `hsl(${h}, ${s}%, ${Math.round(Math.max(0.16, hsl.l * (light ? 0.45 : 0.42)) * 100)}%)`,
     shadow: `hsla(${h}, ${s}%, ${Math.round(Math.max(0.1, hsl.l * 0.3) * 100)}%, 0.45)`,
   };
 }

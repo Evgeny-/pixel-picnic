@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Sim, SimEvent } from '../core/sim';
 import type { LevelDef } from '../core/types';
+import { shapeFor } from '../core/progression';
 import { BoardView } from './BoardView';
 import { QueueView } from './QueueView';
 import { AntsView } from './AntsView';
@@ -98,11 +99,12 @@ export class GameView {
     this.level = level;
     this.sim = sim;
     const palette = level.picture.palette;
-    this.board = new BoardView(sim, palette, theme.frame);
+    const shape = level.shape ?? shapeFor(level.n);
+    this.board = new BoardView(sim, palette, theme.frame, shape);
     this.board.cubes.castShadow = !LOW_END;
     this.queue = new QueueView(sim, palette);
     this.nest = new NestView(theme.soil);
-    this.ants = new AntsView(palette, this.board, sim, this.cb);
+    this.ants = new AntsView(palette, this.board, sim, this.cb, shape);
     this.levelGroup.add(this.board.group, this.queue.group, this.nest.group, this.ants.group);
     this.hemi.color.set(theme.sky);
     this.hemi.groundColor.set(theme.bounce);
@@ -219,16 +221,22 @@ export class GameView {
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
   }
 
-  /** React to simulation events (after the sim already changed). */
-  apply(events: SimEvent[]): void {
+  /**
+   * React to simulation events (after the sim already changed). `roundSec` is the game time of
+   * one dispatch round, used to pace ants to the moment their cube is carried off.
+   */
+  apply(events: SimEvent[], roundSec = 0.105): void {
     let queueChanged = false;
     for (const e of events) {
       switch (e.t) {
         case 'ant': {
-          const from = this.queue.boxTop(e.box, this.tmp);
-          this.ants.spawn(from.clone(), e.cell, e.color);
+          const from = e.box >= 0 ? this.queue.boxTop(e.box, this.tmp) : this.tmp.set(0, 0, 0);
+          this.ants.spawn(from.clone(), e.cell, e.color, (e.due - this.sim.roundNo) * roundSec);
           break;
         }
+        case 'pickup':
+          this.ants.pickup(e.cell);
+          break;
         case 'take':
         case 'boxDone':
         case 'reveal':

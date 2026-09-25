@@ -38,6 +38,8 @@ export interface LevelStats {
   casual: number;
   /** Win rate of a greedy player (0..1). */
   greedy: number;
+  /** Win rate of tapping boxes at random. */
+  random?: number;
   /** DFS nodes the solver needed to find a solution. */
   nodes: number;
   /** Decisions on the solution path where a wrong box leads into a dead end. */
@@ -49,6 +51,20 @@ export interface LevelStats {
   colors: number;
 }
 
+/**
+ * A fence along one side of the frame: ants can't enter through cells [from, to) of that side
+ * (counted left to right for top/bottom, top to bottom for left/right). Gaps between fences are gates.
+ */
+export interface Fence {
+  side: Side;
+  from: number;
+  to: number;
+}
+
+/** What the picture's pieces look like (one shape per level). */
+export type PieceShape = 'cube' | 'coin' | 'candy' | 'hex' | 'diamond';
+export const PIECE_SHAPES: readonly PieceShape[] = ['cube', 'coin', 'candy', 'hex', 'diamond'];
+
 export interface LevelDef {
   n: number;
   world: number;
@@ -56,7 +72,9 @@ export interface LevelDef {
   picture: PictureDef;
   name?: Localized;
   slots: number;
-  sides: Side[];
+  /** Fenced parts of the frame; everything else is open (no fences = ants enter from all sides). */
+  fences?: Fence[];
+  shape?: PieceShape;
   boxes: BoxDef[];
   /** Queue columns: box ids, index 0 = front (closest to the slots). */
   columns: number[][];

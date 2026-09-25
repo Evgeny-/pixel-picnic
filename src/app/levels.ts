@@ -40,7 +40,7 @@ function generateInWorker(n: number, c: LevelDef[]): Promise<LevelDef> {
   const src = c[(n * 7919) % c.length];
   return new Promise((resolve) => {
     pending.set(n, resolve);
-    worker!.postMessage({ n, picture: src.picture, name: src.name, sides: src.sides });
+    worker!.postMessage({ n, picture: src.picture, name: src.name });
   });
 }
 

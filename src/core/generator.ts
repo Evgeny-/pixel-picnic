@@ -1,12 +1,12 @@
 import { Sim } from './sim';
 import { Rng } from './rng';
-import { criticalDecisions, estimateDifficulty, solve, type Difficulty } from './solver';
-import type { BoxDef, LevelDef, PictureDef, Side, Tier } from './types';
+import { criticalDecisions, estimateDifficulty, phaseDifficulty, solve, type Difficulty } from './solver';
+import type { BoxDef, Fence, LevelDef, PictureDef, Tier } from './types';
 
 export interface GenParams {
   columns: number;
   slots: number;
-  sides: Side[];
+  fences: Fence[];
   boxMin: number;
   boxMax: number;
   /** Probability that the reference solution "parks" a box whose color isn't reachable yet. */
@@ -16,6 +16,8 @@ export interface GenParams {
   hiddenFrac: number;
   links: number;
   frozen: number;
+  /** Hard cap for box sizes. */
+  maxBox?: number;
 }
 
 interface SeqBox {
@@ -24,7 +26,7 @@ interface SeqBox {
 }
 
 function emptyLevel(picture: PictureDef, p: GenParams): LevelDef {
-  return { n: 0, world: 0, tier: 'normal', picture, slots: p.slots, sides: p.sides, boxes: [], columns: [] };
+  return { n: 0, world: 0, tier: 'normal', picture, slots: p.slots, fences: p.fences, boxes: [], columns: [] };
 }
 
 /**
@@ -36,27 +38,15 @@ function buildSequence(picture: PictureDef, p: GenParams, rng: Rng): SeqBox[] | 
   const base = Sim.fromLevel(emptyLevel(picture, p));
   const colors = picture.palette.length;
   const unassigned = Int32Array.from(base.remaining);
-  const slots: ({ color: number; left: number } | null)[] = new Array(p.slots).fill(null);
   const seq: SeqBox[] = [];
   const exposed = new Int32Array(colors);
   const waiting = new Int32Array(colors);
 
   for (let guard = 0; guard < 4000; guard++) {
-    for (;;) {
-      let sent = 0;
-      for (let s = 0; s < slots.length; s++) {
-        const sl = slots[s];
-        if (!sl) continue;
-        const t = base.findTarget(sl.color);
-        if (t < 0) continue;
-        base.eatCell(t);
-        sl.left--;
-        sent++;
-        if (sl.left === 0) slots[s] = null;
-      }
-      if (!sent) break;
-    }
+    // Same rules as the game: rounds run until nothing moves (ants arrived, nothing to send).
+    while (base.status === 'playing' && base.round() > 0) { /* settle */ }
     if (base.left === 0) return seq;
+    const slots = base.slots;
     const free = slots.findIndex((s) => !s);
     if (free < 0) return null;
 
@@ -84,9 +74,9 @@ function buildSequence(picture: PictureDef, p: GenParams, rng: Rng): SeqBox[] | 
     const u = unassigned[c];
     let size = rng.int(p.boxMin, p.boxMax);
     if (size >= u) size = u;
-    else if (u - size < p.boxMin) size = u <= p.boxMax * 1.25 ? u : u - p.boxMin;
+    else if (u - size < p.boxMin) size = u <= Math.min(p.boxMax * 1.25, p.maxBox ?? Infinity) ? u : u - p.boxMin;
     unassigned[c] -= size;
-    slots[free] = { color: c, left: size };
+    base.putVirtual(c, size);
     seq.push({ color: c, count: size });
   }
   return null;
@@ -193,16 +183,49 @@ function assemble(picture: PictureDef, seq: SeqBox[], p: GenParams, rng: Rng): C
     level.solution = res.moves;
     nodes = res.nodes;
   }
-  return { level, diff: { casual: 0, greedy: 0 }, nodes };
+  return { level, diff: { casual: 0, greedy: 0, random: 0 }, nodes };
 }
 
 export interface GenTarget {
   /** Accepted range for the casual win rate. */
   casual: [number, number];
-  /** Upper bound for the greedy player's win rate (a simple heuristic must not be enough). */
-  greedyMax?: number;
+  /** Accepted range for the win rate of tapping boxes completely at random. */
+  random?: [number, number];
+  /** Accepted range for the greedy player's win rate (a simple heuristic must not be enough). */
+  greedy?: [number, number];
   /** Minimum number of decisions where a wrong box leads into a dead end. */
   minCritical?: number;
+  /** Largest allowed box. */
+  maxBox?: number;
+  /**
+   * Upper bound for the random player's win rate from a third of the way into the level, so the
+   * thinking isn't all at the first taps.
+   */
+  phaseRandom?: number;
+}
+
+/** Simulated players on a level, plus the later-phase check when the target asks for it. */
+export function measure(level: LevelDef, target: GenTarget, runs: number, seed: number): Difficulty {
+  const d = estimateDifficulty(level, runs, seed);
+  if (target.phaseRandom !== undefined && level.solution?.length) {
+    d.phase = phaseDifficulty(level, [1 / 3], Math.max(40, Math.round(runs * 0.6)), seed + 1).random[0];
+  }
+  return d;
+}
+
+function bandOf(v: number, band: [number, number] | undefined): number {
+  if (!band) return 0;
+  return v < band[0] ? band[0] - v : v > band[1] ? v - band[1] : 0;
+}
+
+/** True when the level is easier than the target in some respect. */
+function tooEasy(d: Difficulty, t: GenTarget): boolean {
+  return (
+    d.casual > t.casual[1] ||
+    d.random > (t.random?.[1] ?? 1) ||
+    d.greedy > (t.greedy?.[1] ?? 1) ||
+    (t.phaseRandom !== undefined && (d.phase ?? 0) > t.phaseRandom)
+  );
 }
 
 export interface GenResult {
@@ -213,8 +236,8 @@ export interface GenResult {
 }
 
 /**
- * Generates a solvable level for `picture` whose simulated casual-player win rate falls into
- * `target.casual`, adapting a hardness knob between attempts.
+ * Generates a solvable level for `picture` whose simulated players' win rates are as close to
+ * `target` as possible, adapting a hardness knob between attempts.
  */
 export function generateLevel(
   picture: PictureDef,
@@ -239,28 +262,29 @@ export function generateLevel(
       ...base,
       dig: Math.min(0.9, base.dig * (0.4 + h1 * 1.2) + h2 * 0.3),
       spread: Math.min(1, base.spread * (0.3 + h1 * 1.4) + h2 * 0.5),
-      boxMin: Math.min(60, Math.round(base.boxMin * grow)),
-      boxMax: Math.min(90, Math.round(base.boxMax * grow)),
+      boxMin: Math.min(Math.round((target.maxBox ?? 90) * 0.6), Math.round(base.boxMin * grow)),
+      boxMax: Math.min(target.maxBox ?? 90, Math.round(base.boxMax * grow)),
       hiddenFrac: base.hiddenFrac > 0 ? Math.min(0.45, base.hiddenFrac + h2 * 0.15) : 0,
       links: base.links > 0 ? base.links + Math.round(h2 * 2) : 0,
+      maxBox: target.maxBox,
     };
     let seq: SeqBox[] | null = null;
     for (let k = 0; k < 20 && !seq; k++) seq = buildSequence(picture, p, rng);
     if (!seq) continue;
     const cand = assemble(picture, seq, p, rng);
     if (!cand) continue;
-    cand.diff = estimateDifficulty(cand.level, runs, seed + attempts);
-    const tooEasy = cand.diff.casual > target.casual[1] || cand.diff.greedy > (target.greedyMax ?? 1);
+    cand.diff = measure(cand.level, target, runs, seed + attempts);
+    const easy = tooEasy(cand.diff, target);
     const dist = objective(cand.diff, target);
     if (!best || dist < best.dist) best = { ...cand, dist };
     if (dist === 0) break;
     // Bisection on the hardness knob once both a too-easy and a too-hard setting are known.
-    if (tooEasy) easyAt = Math.max(easyAt, hard);
+    if (easy) easyAt = Math.max(easyAt, hard);
     else hardAt = Math.min(hardAt, hard);
     if (easyAt >= 0 && hardAt <= 2) hard = (easyAt + hardAt) / 2 + (rng.next() - 0.5) * 0.06;
     else {
       const step = (0.15 + Math.min(0.35, dist)) * (0.7 + rng.next() * 0.6);
-      hard = Math.max(0, Math.min(2, hard + (tooEasy ? step : -step)));
+      hard = Math.max(0, Math.min(2, hard + (easy ? step : -step)));
     }
     if (hardAt - easyAt < 0.03) {
       // Converged on a noisy boundary: re-sample around it.
@@ -272,14 +296,11 @@ export function generateLevel(
   return { level: best.level, diff: best.diff, attempts: attempts + 1, nodes: best.nodes };
 }
 
-function bandDist(c: number, t: GenTarget): number {
-  const [lo, hi] = t.casual;
-  return c < lo ? lo - c : c > hi ? c - hi : 0;
-}
-
 /** Distance of a difficulty measurement from the target (0 = on target). */
-function objective(d: Difficulty, t: GenTarget): number {
-  return bandDist(d.casual, t) + Math.max(0, d.greedy - (t.greedyMax ?? 1)) * 0.5;
+export function objective(d: Difficulty, t: GenTarget): number {
+  let v = bandOf(d.casual, t.casual) + bandOf(d.random, t.random) * 1.5 + bandOf(d.greedy, t.greedy) * 0.5;
+  if (t.phaseRandom !== undefined) v += d.phase === undefined ? 0.15 : Math.max(0, d.phase - t.phaseRandom) * 0.6;
+  return v;
 }
 
 function cloneLevel(l: LevelDef): LevelDef {
@@ -305,7 +326,7 @@ function linksValid(l: LevelDef): boolean {
 }
 
 /** One random edit of the queue that keeps every color's ant total unchanged. */
-function mutate(src: LevelDef, rng: Rng, harder: boolean): LevelDef | null {
+function mutate(src: LevelDef, rng: Rng, harder: boolean, maxBox = 90): LevelDef | null {
   const l = cloneLevel(src);
   const plain = l.boxes.filter((b) => b.link === undefined && !b.frozen);
   const where = (id: number) => {
@@ -330,7 +351,7 @@ function mutate(src: LevelDef, rng: Rng, harder: boolean): LevelDef | null {
     // merge two boxes of one color (harder) — or split one (easier)
     if (harder) {
       const a = rng.pick(plain);
-      const mates = plain.filter((b) => b !== a && b.color === a.color && a.count + b.count <= 90);
+      const mates = plain.filter((b) => b !== a && b.color === a.color && a.count + b.count <= maxBox);
       if (!mates.length) return null;
       const b = rng.pick(mates);
       a.count += b.count;
@@ -354,7 +375,7 @@ function mutate(src: LevelDef, rng: Rng, harder: boolean): LevelDef | null {
     if (!mates.length) return null;
     const b = rng.pick(mates);
     const k = rng.int(1, Math.max(1, Math.floor(b.count / 2)));
-    if (b.count - k < 3) return null;
+    if (b.count - k < 3 || a.count + k > maxBox) return null;
     b.count -= k;
     a.count += k;
   } else {
@@ -378,7 +399,7 @@ function mutate(src: LevelDef, rng: Rng, harder: boolean): LevelDef | null {
 
 /**
  * Local search on the queue layout: random edits that keep the level solvable (checked by the
- * solver) and move the simulated casual win rate towards the target band.
+ * solver) and move the simulated players' win rates towards the target bands.
  */
 export function tuneLevel(
   level: LevelDef,
@@ -393,13 +414,12 @@ export function tuneLevel(
   let bestDiff = diff;
   let bestDist = objective(diff, target);
   for (let it = 0; it < iters && bestDist > 0; it++) {
-    const harder = bestDiff.casual > target.casual[1] || bestDiff.greedy > (target.greedyMax ?? 1);
-    const cand = mutate(best, rng, harder);
+    const cand = mutate(best, rng, tooEasy(bestDiff, target), target.maxBox);
     if (!cand) continue;
     const res = solve(Sim.fromLevel(cand), 12000);
     if (res.status !== 'solved') continue;
     cand.solution = res.moves;
-    const d = estimateDifficulty(cand, runs, seed + it * 7);
+    const d = measure(cand, target, runs, seed + it * 7);
     const dist = objective(d, target);
     if (dist < bestDist) {
       best = cand;
@@ -411,23 +431,20 @@ export function tuneLevel(
 }
 
 /**
- * Difficulty targets. Every level must make you think at least once (a wrong box somewhere leads
- * into a dead end); harder tiers need more such decisions and beat simple heuristics.
+ * Difficulty targets, measured with simulated players: tapping at random must fail (almost always
+ * on hard levels), a casual player who only looks at which colors are reachable must fail often,
+ * and harder tiers beat a greedy heuristic. Every level has decisions where a wrong box leads into
+ * a dead end.
  */
 export function tierTarget(tier: Tier, n: number): GenTarget {
-  if (n === 1) return { casual: [0.55, 0.9], minCritical: 1 };
-  if (n <= 4) return { casual: [0.45, 0.85], minCritical: 1 };
-  if (n <= 10 && tier === 'normal') return { casual: [0.4, 0.78], minCritical: 2 };
-  if (n < 10 && tier === 'hard') return { casual: [0.15, 0.45], minCritical: 3, greedyMax: 0.95 };
-  if (n < 20 && tier === 'superhard') return { casual: [0.04, 0.18], minCritical: 4, greedyMax: 0.8 };
-  switch (tier) {
-    case 'normal':
-      return { casual: [0.3, 0.7], minCritical: 2 };
-    case 'hard':
-      return { casual: [0.08, 0.28], minCritical: 4, greedyMax: 0.85 };
-    case 'superhard':
-      return { casual: [0.01, 0.08], minCritical: 6, greedyMax: 0.6 };
-  }
+  if (n === 1) return { casual: [0.45, 0.85], random: [0.1, 0.33], greedy: [0.6, 1], minCritical: 1, maxBox: 45 };
+  if (n <= 4) return { casual: [0.3, 0.7], random: [0.04, 0.25], greedy: [0.5, 1], minCritical: 2, maxBox: 50 };
+  if (tier === 'normal' && n <= 10) return { casual: [0.25, 0.6], random: [0.02, 0.18], greedy: [0.45, 1], minCritical: 2, maxBox: 60 };
+  if (tier === 'normal') return { casual: [0.15, 0.5], random: [0, 0.12], greedy: [0.35, 1], minCritical: 3, maxBox: 70 };
+  if (tier === 'hard' && n < 10) return { casual: [0.08, 0.3], random: [0, 0.04], greedy: [0.2, 0.9], minCritical: 3, maxBox: 70 };
+  if (tier === 'hard') return { casual: [0.03, 0.18], random: [0, 0.02], greedy: [0.1, 0.75], minCritical: 4, maxBox: 75, phaseRandom: 0.6 };
+  if (n < 20) return { casual: [0.01, 0.1], random: [0, 0.01], greedy: [0, 0.5], minCritical: 4, maxBox: 80, phaseRandom: 0.6 };
+  return { casual: [0, 0.05], random: [0, 0.005], greedy: [0, 0.35], minCritical: 5, maxBox: 80, phaseRandom: 0.4 };
 }
 
 /**

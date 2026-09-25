@@ -35,7 +35,7 @@ export class DebugScreen {
     this.top.classList.remove('hidden');
     this.list.innerHTML = '';
     const byTier: Record<Tier, number[]> = { normal: [], hard: [], superhard: [] };
-    for (const lv of levels) if (lv.stats) byTier[lv.tier].push(lv.stats.casual);
+    for (const lv of levels) if (lv.stats) byTier[lv.tier].push(lv.stats.random ?? lv.stats.casual);
     const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : undefined);
     this.summary.innerHTML =
       `${emoji('lady-beetle', 28)} ${levels.length} · ` +
@@ -46,9 +46,9 @@ export class DebugScreen {
       h('p', {
         class: 'debug-legend',
         html:
-          'casual / greedy — доля побед симулированных игроков (случайный разумный / жадный), чем меньше, тем сложнее. ' +
-          '🧠 critical — сколько раз на пути к победе неверная коробка ведёт в тупик (надо подумать). ' +
-          'casual / greedy — win rate of simulated players (lower = harder); 🧠 critical — decisions where a wrong box loses.',
+          'random / casual / greedy — доля побед симулированных игроков: жмёт наугад / берёт доступные цвета / жадный. Чем меньше, тем сложнее. ' +
+          '🧠 critical — сколько раз на пути к победе неверная коробка ведёт в тупик (надо подумать). В шапке — средний random по тирам. ' +
+          'random / casual / greedy — win rates of simulated players (lower = harder); 🧠 critical — decisions where a wrong box loses.',
       }),
     );
     const worlds = Math.ceil(levels.length / LEVELS_PER_WORLD);
@@ -71,7 +71,7 @@ export class DebugScreen {
       hidden ? `❓${hidden}` : '',
       links ? `🔗${links}` : '',
       frozen ? `❄️${frozen}` : '',
-      lv.sides.length > 1 ? `🚪${lv.sides.map((s) => s[0].toUpperCase()).join('')}` : '',
+      lv.fences?.length ? `🚧${[...new Set(lv.fences.map((f) => f.side[0].toUpperCase()))].join('')}` : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -87,7 +87,7 @@ export class DebugScreen {
       h('div', {
         class: 'debug-stats',
         html:
-          `<b>casual ${pct(st?.casual)}</b> · greedy ${pct(st?.greedy)}<br>` +
+          `<b>random ${pct(st?.random)}</b> · casual ${pct(st?.casual)} · greedy ${pct(st?.greedy)}<br>` +
           `🧠 ${st?.critical ?? '?'} critical / ${st?.decisions ?? '?'} decisions<br>` +
           `${lv.picture.w}×${lv.picture.h} · ${st?.pixels ?? '?'} cubes · ${lv.picture.palette.length} col<br>` +
           `${lv.boxes.length} boxes · ${lv.columns.length} columns · ${lv.slots} slots` +

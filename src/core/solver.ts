@@ -123,6 +123,10 @@ export function playout(start: Sim, rng: Rng, policy: Policy): boolean {
 export interface Difficulty {
   casual: number;
   greedy: number;
+  /** Win rate of a player tapping any available box at random. */
+  random: number;
+  /** Random player's win rate from a third of the way through the solution (if measured). */
+  phase?: number;
 }
 
 /**
@@ -164,9 +168,42 @@ export function estimateDifficulty(level: LevelDef | Sim, runs = 160, seed = 123
   const rng = new Rng(seed);
   let casual = 0;
   let greedy = 0;
+  let random = 0;
   for (let i = 0; i < runs; i++) {
     if (playout(sim, rng, 'casual')) casual++;
     if (playout(sim, rng, 'greedy')) greedy++;
+    if (playout(sim, rng, 'random')) random++;
   }
-  return { casual: casual / runs, greedy: greedy / runs };
+  return { casual: casual / runs, greedy: greedy / runs, random: random / runs };
+}
+
+/**
+ * Win rates of the random and casual players starting later in the level: after the given
+ * fractions of the reference solution. Shows whether the thinking is spread over the level or only
+ * needed at the start.
+ */
+export function phaseDifficulty(level: LevelDef, at = [1 / 3, 2 / 3], runs = 80, seed = 777): { random: number[]; casual: number[] } {
+  const sol = level.solution ?? [];
+  const sim = Sim.fromLevel(level);
+  const rng = new Rng(seed);
+  const random: number[] = [];
+  const casual: number[] = [];
+  let done = 0;
+  for (const f of at) {
+    const upto = Math.floor(sol.length * f);
+    for (; done < upto; done++) {
+      sim.settle();
+      sim.take(sol[done]);
+    }
+    sim.settle();
+    let r = 0;
+    let c = 0;
+    for (let i = 0; i < runs; i++) {
+      if (playout(sim, rng, 'random')) r++;
+      if (playout(sim, rng, 'casual')) c++;
+    }
+    random.push(r / runs);
+    casual.push(c / runs);
+  }
+  return { random, casual };
 }

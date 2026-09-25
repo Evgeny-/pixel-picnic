@@ -225,7 +225,7 @@ export class Game {
   }
 
   private handleRound(ev: SimEvent[]): void {
-    this.view.apply(ev);
+    this.view.apply(ev, ROUND);
     if (this.hoverId !== null) this.refreshHover();
     let outs = 0;
     for (const e of ev) {
@@ -317,8 +317,9 @@ export class Game {
   private undo(): boolean {
     const prev = this.history.pop();
     if (!prev) return false;
-    // Rewind: ants vanish, cubes they were carrying fly back.
+    // Rewind: ants vanish; cubes that were already on their way are simply gone.
     this.sim = prev;
+    this.sim.flushPending();
     this.view.ants.fadeAll();
     this.rebindView();
     this.finished = null;

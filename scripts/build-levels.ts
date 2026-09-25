@@ -2,20 +2,27 @@
  * Builds the campaign: picks an emoji per level, turns it into pixel art, generates a box queue
  * with the solver-verified generator and writes src/data/levels.json.
  *
- * Run: bun scripts/build-levels.ts [count]
+ * Run: bun scripts/build-levels.ts [count] [outPath]
+ * Rebuild a few levels of an existing campaign in place (other levels and their pictures stay):
+ *      REBUILD=1,2,3 bun scripts/build-levels.ts
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { PICTURES, type PictureEntry } from './pictures-manifest';
 import { renderEmojiRGBA } from './lib/emoji';
 import { pixelize, fillBackground, pickBackground, type PixelGrid } from './lib/pixelart';
-import { ensureCritical, generateLevel, tierTarget, tuneLevel } from '../src/core/generator';
-import { LEVELS_PER_WORLD, planLevel, worldOf } from '../src/core/progression';
+import { ensureCritical, generateLevel, objective, tierTarget, tuneLevel } from '../src/core/generator';
+import { phaseDifficulty } from '../src/core/solver';
+import { buildFences, LEVELS_PER_WORLD, planLevel, shapeFor, worldOf } from '../src/core/progression';
 import { encodeCells, tierForLevel, type LevelDef, type PictureDef } from '../src/core/types';
 import { Rng, hashString } from '../src/core/rng';
 
 const THEME_ORDER = ['meadow', 'forest', 'sea', 'sweets', 'space', 'winter', 'fantasy'] as const;
 const COUNT = Number(process.argv[2] ?? THEME_ORDER.length * LEVELS_PER_WORLD);
 const OUT = process.argv[3] ?? 'src/data/levels.json';
+/** Optional comma separated level numbers to build (experiments); default: 1..COUNT. */
+const ONLY = process.env.LEVELS ? new Set(process.env.LEVELS.split(',').map(Number)) : null;
+/** Levels to regenerate inside the existing campaign file (OUT). */
+const REBUILD = process.env.REBUILD ? new Set(process.env.REBUILD.split(',').map(Number)) : null;
 const PATTERNS = ['sparkles', 'dots', 'none', 'stripes', 'sparkles', 'checker'] as const;
 
 const used = new Set<string>();
@@ -65,6 +72,8 @@ function compact(g: PixelGrid): PixelGrid {
 }
 
 const levels: LevelDef[] = [];
+const existing: LevelDef[] = REBUILD && existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : [];
+if (REBUILD) for (const lv of existing) if (!REBUILD.has(lv.n)) used.add(lv.picture.id);
 const t0 = performance.now();
 
 interface Built {
@@ -97,6 +106,7 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   const k = pixels / approx;
   const params = {
     ...plan.params,
+    fences: buildFences(plan.fences, grid.w, grid.h, n),
     boxMin: Math.max(3, Math.round(plan.params.boxMin * k)),
     boxMax: Math.max(6, Math.round(plan.params.boxMax * k)),
   };
@@ -105,9 +115,8 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   let res = generateLevel(picture, params, target, n * 1013 + 7, tier === 'superhard' ? 36 : 26, 140);
   if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0 }, target, n * 1013 + 8, 40, 100);
   if (!res) return null;
-  const band = (v: number) => (v < target.casual[0] ? target.casual[0] - v : v > target.casual[1] ? v - target.casual[1] : 0);
-  const iters = tier === 'superhard' ? 180 : tier === 'hard' ? 140 : 70;
-  if (band(res.diff.casual) > 0 || res.diff.greedy > (target.greedyMax ?? 1)) {
+  const iters = tier === 'superhard' ? 260 : tier === 'hard' ? 200 : 120;
+  if (objective(res.diff, target) > 0) {
     // Fine-tune the queue layout with solver-checked local search.
     const tuned = tuneLevel(res.level, res.diff, target, n * 7717 + 3, iters, 90);
     res = { ...res, level: tuned.level, diff: tuned.diff };
@@ -115,17 +124,18 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   // Every level must ask for real decisions; keep tuning until it does.
   const crit = ensureCritical(res.level, res.diff, target, n * 3571 + 11, Math.round(iters * 0.6));
   res = { ...res, level: crit.level, diff: crit.diff };
-  const c = res.diff.casual;
-  const dist = band(c) + Math.max(0, (target.minCritical ?? 0) - crit.critical) * 0.05;
+  const dist = objective(res.diff, target) + Math.max(0, (target.minCritical ?? 0) - crit.critical) * 0.05;
   const lv: LevelDef = {
     ...res.level,
     n,
     world: worldOf(n),
     tier,
     name: entry.name,
+    shape: shapeFor(n),
     stats: {
       casual: +res.diff.casual.toFixed(3),
       greedy: +res.diff.greedy.toFixed(3),
+      random: +res.diff.random.toFixed(3),
       nodes: res.nodes,
       critical: crit.critical,
       decisions: crit.decisions,
@@ -137,7 +147,15 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   return { lv, entry, dist, attempts: res.attempts, ms: performance.now() - ts };
 }
 
+const fenceTag = (lv: LevelDef) =>
+  (lv.fences ?? []).length ? [...new Set(lv.fences!.map((f) => f.side[0].toUpperCase()))].join('') + (lv.fences!.some((f) => f.from > 0 || f.to < (f.side === 'top' || f.side === 'bottom' ? lv.picture.w : lv.picture.h)) ? 'g' : '') : '-';
+
 for (let n = 1; n <= COUNT; n++) {
+  if (ONLY && !ONLY.has(n)) continue;
+  if (REBUILD && !REBUILD.has(n) && existing[n - 1]) {
+    levels.push(existing[n - 1]);
+    continue;
+  }
   const tier = tierForLevel(n);
   const tries = tier === 'normal' ? 4 : 5;
   let best: Built | null = null;
@@ -151,10 +169,12 @@ for (let n = 1; n <= COUNT; n++) {
   const lv = best.lv;
   levels.push(lv);
   const st = lv.stats!;
+  const ph = phaseDifficulty(lv, [1 / 3], 60);
   console.log(
     `#${String(n).padStart(3)} ${tier.padEnd(9)} ${best.entry.id.padEnd(22)} ${lv.picture.w}x${lv.picture.h} px=${String(st.pixels).padStart(4)} col=${st.colors} ` +
-      `boxes=${String(st.boxes).padStart(2)} sides=${lv.sides.join('+').padEnd(11)} casual=${st.casual.toFixed(2)} greedy=${st.greedy.toFixed(2)} crit=${st.critical}/${st.decisions} ` +
-      `${best.dist === 0 ? 'ok ' : 'OFF'} att=${best.attempts} ${best.ms.toFixed(0)}ms`,
+      `boxes=${String(st.boxes).padStart(2)} max=${String(Math.max(...lv.boxes.map((b) => b.count))).padStart(2)} q=${lv.columns.length}/${lv.slots} fence=${fenceTag(lv).padEnd(4)} ` +
+      `rnd=${st.random!.toFixed(2)} cas=${st.casual.toFixed(2)} gr=${st.greedy.toFixed(2)} crit=${st.critical}/${st.decisions} ` +
+      `@1/3 rnd=${ph.random[0].toFixed(2)} cas=${ph.casual[0].toFixed(2)} ${best.dist === 0 ? 'ok ' : 'OFF ' + best.dist.toFixed(2)} ${best.ms.toFixed(0)}ms`,
   );
 }
 mkdirSync('src/data', { recursive: true });
