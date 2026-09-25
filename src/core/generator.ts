@@ -1,6 +1,6 @@
 import { Sim } from './sim';
 import { Rng } from './rng';
-import { estimateDifficulty, solve, type Difficulty } from './solver';
+import { criticalDecisions, estimateDifficulty, solve, type Difficulty } from './solver';
 import type { BoxDef, LevelDef, PictureDef, Side, Tier } from './types';
 
 export interface GenParams {
@@ -199,6 +199,10 @@ function assemble(picture: PictureDef, seq: SeqBox[], p: GenParams, rng: Rng): C
 export interface GenTarget {
   /** Accepted range for the casual win rate. */
   casual: [number, number];
+  /** Upper bound for the greedy player's win rate (a simple heuristic must not be enough). */
+  greedyMax?: number;
+  /** Minimum number of decisions where a wrong box leads into a dead end. */
+  minCritical?: number;
 }
 
 export interface GenResult {
@@ -246,18 +250,17 @@ export function generateLevel(
     const cand = assemble(picture, seq, p, rng);
     if (!cand) continue;
     cand.diff = estimateDifficulty(cand.level, runs, seed + attempts);
-    const [lo, hi] = target.casual;
-    const c = cand.diff.casual;
-    const dist = c < lo ? lo - c : c > hi ? c - hi : 0;
+    const tooEasy = cand.diff.casual > target.casual[1] || cand.diff.greedy > (target.greedyMax ?? 1);
+    const dist = objective(cand.diff, target);
     if (!best || dist < best.dist) best = { ...cand, dist };
     if (dist === 0) break;
     // Bisection on the hardness knob once both a too-easy and a too-hard setting are known.
-    if (c > hi) easyAt = Math.max(easyAt, hard);
+    if (tooEasy) easyAt = Math.max(easyAt, hard);
     else hardAt = Math.min(hardAt, hard);
     if (easyAt >= 0 && hardAt <= 2) hard = (easyAt + hardAt) / 2 + (rng.next() - 0.5) * 0.06;
     else {
       const step = (0.15 + Math.min(0.35, dist)) * (0.7 + rng.next() * 0.6);
-      hard = Math.max(0, Math.min(2, hard + (c > hi ? step : -step)));
+      hard = Math.max(0, Math.min(2, hard + (tooEasy ? step : -step)));
     }
     if (hardAt - easyAt < 0.03) {
       // Converged on a noisy boundary: re-sample around it.
@@ -272,6 +275,11 @@ export function generateLevel(
 function bandDist(c: number, t: GenTarget): number {
   const [lo, hi] = t.casual;
   return c < lo ? lo - c : c > hi ? c - hi : 0;
+}
+
+/** Distance of a difficulty measurement from the target (0 = on target). */
+function objective(d: Difficulty, t: GenTarget): number {
+  return bandDist(d.casual, t) + Math.max(0, d.greedy - (t.greedyMax ?? 1)) * 0.5;
 }
 
 function cloneLevel(l: LevelDef): LevelDef {
@@ -383,16 +391,16 @@ export function tuneLevel(
   const rng = new Rng(seed ^ 0x5bd1e995);
   let best = level;
   let bestDiff = diff;
-  let bestDist = bandDist(diff.casual, target);
+  let bestDist = objective(diff, target);
   for (let it = 0; it < iters && bestDist > 0; it++) {
-    const harder = bestDiff.casual > target.casual[1];
+    const harder = bestDiff.casual > target.casual[1] || bestDiff.greedy > (target.greedyMax ?? 1);
     const cand = mutate(best, rng, harder);
     if (!cand) continue;
     const res = solve(Sim.fromLevel(cand), 12000);
     if (res.status !== 'solved') continue;
     cand.solution = res.moves;
     const d = estimateDifficulty(cand, runs, seed + it * 7);
-    const dist = bandDist(d.casual, target);
+    const dist = objective(d, target);
     if (dist < bestDist) {
       best = cand;
       bestDiff = d;
@@ -402,17 +410,48 @@ export function tuneLevel(
   return { level: best, diff: bestDiff };
 }
 
+/**
+ * Difficulty targets. Every level must make you think at least once (a wrong box somewhere leads
+ * into a dead end); harder tiers need more such decisions and beat simple heuristics.
+ */
 export function tierTarget(tier: Tier, n: number): GenTarget {
-  if (n <= 3) return { casual: [0.85, 1] };
-  if (n <= 8 && tier === 'normal') return { casual: [0.65, 1] };
-  if (n < 10 && tier === 'hard') return { casual: [0.2, 0.6] };
-  if (n < 20 && tier === 'superhard') return { casual: [0.04, 0.2] };
+  if (n === 1) return { casual: [0.55, 0.9], minCritical: 1 };
+  if (n <= 4) return { casual: [0.45, 0.85], minCritical: 1 };
+  if (n <= 10 && tier === 'normal') return { casual: [0.4, 0.78], minCritical: 2 };
+  if (n < 10 && tier === 'hard') return { casual: [0.15, 0.45], minCritical: 3, greedyMax: 0.95 };
+  if (n < 20 && tier === 'superhard') return { casual: [0.04, 0.18], minCritical: 4, greedyMax: 0.8 };
   switch (tier) {
     case 'normal':
-      return { casual: [0.35, 0.8] };
+      return { casual: [0.3, 0.7], minCritical: 2 };
     case 'hard':
-      return { casual: [0.1, 0.32] };
+      return { casual: [0.08, 0.28], minCritical: 4, greedyMax: 0.85 };
     case 'superhard':
-      return { casual: [0.015, 0.1] };
+      return { casual: [0.01, 0.08], minCritical: 6, greedyMax: 0.6 };
   }
+}
+
+/**
+ * Makes sure the level asks for enough real decisions: while it has fewer critical decisions than
+ * required, tighten the casual band and keep tuning.
+ */
+export function ensureCritical(
+  level: LevelDef,
+  diff: Difficulty,
+  target: GenTarget,
+  seed: number,
+  iters = 60,
+): { level: LevelDef; diff: Difficulty; critical: number; decisions: number } {
+  let best = { level, diff, ...criticalDecisions(level) };
+  const need = target.minCritical ?? 0;
+  for (let round = 1; round <= 3 && best.critical < need; round++) {
+    const [lo, hi] = target.casual;
+    const tighter: GenTarget = {
+      ...target,
+      casual: [Math.max(0, lo - 0.08 * round), Math.max(lo * 0.6, hi - 0.14 * round)],
+    };
+    const tuned = tuneLevel(best.level, best.diff, tighter, seed + round * 101, iters, 90);
+    const crit = criticalDecisions(tuned.level);
+    if (crit.critical > best.critical) best = { level: tuned.level, diff: tuned.diff, ...crit };
+  }
+  return best;
 }

@@ -234,7 +234,7 @@ export class MapScreen {
       if (locked && n === d.unlocked + 1) node.append(h('span', { class: 'lockico', html: emoji('locked', 22) }));
       if (d.debug) {
         const st = d.stats(n);
-        if (st) node.append(h('span', { class: 'dbg', text: `c${Math.round(st.casual * 100)} g${Math.round(st.greedy * 100)}` }));
+        if (st) node.append(h('span', { class: 'dbg', text: `c${Math.round(st.casual * 100)} g${Math.round(st.greedy * 100)} 🧠${st.critical ?? '?'}` }));
       }
       node.addEventListener('click', () => {
         audio.unlock();

@@ -8,7 +8,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { PICTURES, type PictureEntry } from './pictures-manifest';
 import { renderEmojiRGBA } from './lib/emoji';
 import { pixelize, fillBackground, pickBackground, type PixelGrid } from './lib/pixelart';
-import { generateLevel, tierTarget, tuneLevel } from '../src/core/generator';
+import { ensureCritical, generateLevel, tierTarget, tuneLevel } from '../src/core/generator';
 import { LEVELS_PER_WORLD, planLevel, worldOf } from '../src/core/progression';
 import { encodeCells, tierForLevel, type LevelDef, type PictureDef } from '../src/core/types';
 import { Rng, hashString } from '../src/core/rng';
@@ -25,10 +25,9 @@ function pictureCandidates(n: number, tier: string): PictureEntry[] {
   const w = worldOf(n);
   const theme = THEME_ORDER[w % THEME_ORDER.length];
   const idx = (n - 1) % LEVELS_PER_WORLD;
-  let want = idx < 6 ? 1 : idx < 14 ? 2 : 3;
-  if (tier === 'hard') want = Math.max(want, 2);
-  if (tier === 'superhard') want = 3;
-  if (n <= 3) want = 1;
+  // Even the first levels use pictures with some detail: simple blobs make trivial puzzles.
+  let want = n <= 20 ? (idx < 14 ? 2 : 3) : idx < 6 ? 2 : 3;
+  if (tier !== 'normal') want = 3;
   const pool = PICTURES.filter((p) => p.theme === theme && !used.has(p.id));
   const fallback = PICTURES.filter((p) => !used.has(p.id));
   const list = pool.length >= 3 ? pool : fallback;
@@ -83,11 +82,11 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   const rgba = renderEmojiRGBA(entry.source, entry.icon, 512);
   let grid = pixelize(rgba, { gridW: plan.gridSize, gridH: plan.gridSize, colors: plan.colors, minColorDistance: 0.1 });
   grid = crop(grid);
-  // Hard levels and pictures with very few colors get a background to stay interesting.
-  const useBg = plan.background || (n >= 5 && tier !== 'normal') || (n > 1 && grid.palette.length < Math.min(4, plan.colors));
+  // Every picture sits on a patterned background: it adds colors that interleave with the subject.
+  const useBg = true;
   if (useBg) {
     const bg = pickBackground(grid, n);
-    const pattern = n < 21 ? (rng.chance(0.6) ? 'sparkles' : 'none') : PATTERNS[n % PATTERNS.length];
+    const pattern = n < 21 ? (rng.chance(0.55) ? 'sparkles' : 'dots') : PATTERNS[n % PATTERNS.length];
     grid = fillBackground(grid, { color: bg.color, pattern, patternColor: bg.patternColor, seed: n, margin: n < 21 ? 1 : 2 });
   }
   grid = compact(grid);
@@ -107,14 +106,17 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0 }, target, n * 1013 + 8, 40, 100);
   if (!res) return null;
   const band = (v: number) => (v < target.casual[0] ? target.casual[0] - v : v > target.casual[1] ? v - target.casual[1] : 0);
-  if (band(res.diff.casual) > 0) {
+  const iters = tier === 'superhard' ? 180 : tier === 'hard' ? 140 : 70;
+  if (band(res.diff.casual) > 0 || res.diff.greedy > (target.greedyMax ?? 1)) {
     // Fine-tune the queue layout with solver-checked local search.
-    const iters = tier === 'superhard' ? 180 : tier === 'hard' ? 140 : 60;
     const tuned = tuneLevel(res.level, res.diff, target, n * 7717 + 3, iters, 90);
     res = { ...res, level: tuned.level, diff: tuned.diff };
   }
+  // Every level must ask for real decisions; keep tuning until it does.
+  const crit = ensureCritical(res.level, res.diff, target, n * 3571 + 11, Math.round(iters * 0.6));
+  res = { ...res, level: crit.level, diff: crit.diff };
   const c = res.diff.casual;
-  const dist = band(c);
+  const dist = band(c) + Math.max(0, (target.minCritical ?? 0) - crit.critical) * 0.05;
   const lv: LevelDef = {
     ...res.level,
     n,
@@ -125,6 +127,8 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
       casual: +res.diff.casual.toFixed(3),
       greedy: +res.diff.greedy.toFixed(3),
       nodes: res.nodes,
+      critical: crit.critical,
+      decisions: crit.decisions,
       pixels,
       boxes: res.level.boxes.length,
       colors: grid.palette.length,
@@ -135,7 +139,7 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
 
 for (let n = 1; n <= COUNT; n++) {
   const tier = tierForLevel(n);
-  const tries = tier === 'normal' ? 2 : 4;
+  const tries = tier === 'normal' ? 4 : 5;
   let best: Built | null = null;
   for (const entry of pictureCandidates(n, tier).slice(0, tries)) {
     const b = buildWith(n, entry);
@@ -149,7 +153,7 @@ for (let n = 1; n <= COUNT; n++) {
   const st = lv.stats!;
   console.log(
     `#${String(n).padStart(3)} ${tier.padEnd(9)} ${best.entry.id.padEnd(22)} ${lv.picture.w}x${lv.picture.h} px=${String(st.pixels).padStart(4)} col=${st.colors} ` +
-      `boxes=${String(st.boxes).padStart(2)} sides=${lv.sides.join('+').padEnd(11)} casual=${st.casual.toFixed(2)} greedy=${st.greedy.toFixed(2)} ` +
+      `boxes=${String(st.boxes).padStart(2)} sides=${lv.sides.join('+').padEnd(11)} casual=${st.casual.toFixed(2)} greedy=${st.greedy.toFixed(2)} crit=${st.critical}/${st.decisions} ` +
       `${best.dist === 0 ? 'ok ' : 'OFF'} att=${best.attempts} ${best.ms.toFixed(0)}ms`,
   );
 }

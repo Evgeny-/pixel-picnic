@@ -41,14 +41,14 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
   let gridSize: number;
   let colors: number;
   if (n <= 3) {
-    gridSize = 14 + n;
-    colors = n === 1 ? 3 : 4;
+    gridSize = 15 + n;
+    colors = n === 1 ? 4 : 5;
   } else if (n <= 10) {
-    gridSize = rng.int(17, 20);
-    colors = rng.int(4, 5);
+    gridSize = rng.int(18, 21);
+    colors = rng.int(5, 6);
   } else if (n <= 20) {
     gridSize = rng.int(20, 24);
-    colors = rng.int(5, 6);
+    colors = rng.int(5, 7);
   } else {
     const base = Math.min(34, 22 + w * 2);
     gridSize = rng.int(base, base + 4);
@@ -60,11 +60,11 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
     colors = Math.min(9, colors + 1);
   }
   gridSize = Math.min(40, gridSize);
-  const background = n >= 11 || (n >= 5 && rng.chance(0.5));
+  const background = true;
 
   // Roughly how many boxes the level should have.
   const approxPixels = background ? gridSize * gridSize : gridSize * gridSize * 0.62;
-  const targetBoxes = n <= 3 ? 7 + n : n <= 10 ? rng.int(10, 14) : n <= 20 ? rng.int(14, 20) : rng.int(18, 28) + (sh ? 4 : 0);
+  const targetBoxes = n <= 3 ? 9 + n * 2 : n <= 10 ? rng.int(13, 17) : n <= 20 ? rng.int(15, 21) : rng.int(18, 28) + (sh ? 4 : 0);
   const avg = approxPixels / targetBoxes;
   const boxMin = Math.max(4, Math.round(avg * 0.6));
   const boxMax = Math.max(boxMin + 2, Math.round(avg * 1.45));

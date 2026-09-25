@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { generateLevel, tierTarget } from '../core/generator';
+import { ensureCritical, generateLevel, tierTarget, tuneLevel } from '../core/generator';
 import { planLevel, worldOf } from '../core/progression';
 import { decodeCells, tierForLevel, type Localized, type PictureDef, type Side } from '../core/types';
 
@@ -18,8 +18,31 @@ self.onmessage = (e: MessageEvent<Req>) => {
   const targetBoxes = Math.round(22 + (tier === 'superhard' ? 6 : tier === 'hard' ? 3 : 0));
   const avg = pixels / targetBoxes;
   const params = { ...plan.params, boxMin: Math.max(6, Math.round(avg * 0.6)), boxMax: Math.max(10, Math.round(avg * 1.45)) };
-  let res = generateLevel(picture, params, tierTarget(tier, n), n * 31 + 7, 16, 90);
-  if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0, hiddenFrac: 0 }, { casual: [0, 1] }, n * 31 + 8, 30, 40);
-  const level = { ...res!.level, n, world: worldOf(n), tier, name, stats: undefined };
-  (self as unknown as Worker).postMessage({ n, level });
+  const target = tierTarget(tier, n);
+  let res = generateLevel(picture, params, target, n * 31 + 7, 16, 90);
+  if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0 }, { casual: [0, 1] }, n * 31 + 8, 30, 40);
+  let level = res!.level;
+  let diff = res!.diff;
+  const tuned = tuneLevel(level, diff, target, n * 131 + 5, tier === 'normal' ? 25 : 45, 70);
+  const crit = ensureCritical(tuned.level, tuned.diff, target, n * 137 + 9, 25);
+  level = crit.level;
+  diff = crit.diff;
+  const out = {
+    ...level,
+    n,
+    world: worldOf(n),
+    tier,
+    name,
+    stats: {
+      casual: diff.casual,
+      greedy: diff.greedy,
+      nodes: 0,
+      critical: crit.critical,
+      decisions: crit.decisions,
+      pixels,
+      boxes: level.boxes.length,
+      colors: picture.palette.length,
+    },
+  };
+  (self as unknown as Worker).postMessage({ n, level: out });
 };

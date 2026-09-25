@@ -46,8 +46,9 @@ export class DebugScreen {
       h('p', {
         class: 'debug-legend',
         html:
-          'casual / greedy — доля побед симулированных игроков (случайный разумный / жадный). ' +
-          'Чем меньше, тем сложнее уровень. casual / greedy — win rate of simulated players; lower = harder.',
+          'casual / greedy — доля побед симулированных игроков (случайный разумный / жадный), чем меньше, тем сложнее. ' +
+          '🧠 critical — сколько раз на пути к победе неверная коробка ведёт в тупик (надо подумать). ' +
+          'casual / greedy — win rate of simulated players (lower = harder); 🧠 critical — decisions where a wrong box loses.',
       }),
     );
     const worlds = Math.ceil(levels.length / LEVELS_PER_WORLD);
@@ -87,6 +88,7 @@ export class DebugScreen {
         class: 'debug-stats',
         html:
           `<b>casual ${pct(st?.casual)}</b> · greedy ${pct(st?.greedy)}<br>` +
+          `🧠 ${st?.critical ?? '?'} critical / ${st?.decisions ?? '?'} decisions<br>` +
           `${lv.picture.w}×${lv.picture.h} · ${st?.pixels ?? '?'} cubes · ${lv.picture.palette.length} col<br>` +
           `${lv.boxes.length} boxes · ${lv.columns.length} columns · ${lv.slots} slots` +
           (mech ? `<br>${mech}` : ''),

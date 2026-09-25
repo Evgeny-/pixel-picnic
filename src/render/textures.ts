@@ -26,8 +26,12 @@ export class LabelTexture {
     this.texture.anisotropy = 4;
   }
 
-  draw(text: string, opts: { fill?: string; stroke?: string; scale?: number } = {}): void {
-    const key = text + (opts.fill ?? '') + (opts.stroke ?? '') + (opts.scale ?? 1);
+  /**
+   * Draws the number like a stamp pressed into the box: a tint of the box color, a thin darker
+   * rim and a soft shadow underneath (the plane is lit together with the box).
+   */
+  draw(text: string, opts: { fill?: string; stroke?: string; shadow?: string; scale?: number } = {}): void {
+    const key = text + (opts.fill ?? '') + (opts.stroke ?? '') + (opts.shadow ?? '') + (opts.scale ?? 1);
     if (key === this.last) return;
     this.last = key;
     const { ctx, canvas } = this;
@@ -38,14 +42,16 @@ export class LabelTexture {
       return;
     }
     const len = text.length;
-    const fontSize = s * (len >= 3 ? 0.46 : len === 2 ? 0.58 : 0.66) * (opts.scale ?? 1);
+    const fontSize = s * (len >= 3 ? 0.42 : len === 2 ? 0.52 : 0.6) * (opts.scale ?? 1);
     ctx.font = `900 ${fontSize}px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const y = s * 0.54;
+    const y = s * 0.53;
     ctx.lineJoin = 'round';
-    ctx.lineWidth = fontSize * 0.2;
-    ctx.strokeStyle = opts.stroke ?? 'rgba(38, 28, 60, 0.92)';
+    ctx.fillStyle = opts.shadow ?? 'rgba(20, 12, 30, 0.35)';
+    ctx.fillText(text, s / 2, y + fontSize * 0.07);
+    ctx.lineWidth = fontSize * 0.09;
+    ctx.strokeStyle = opts.stroke ?? 'rgba(38, 28, 60, 0.85)';
     ctx.strokeText(text, s / 2, y);
     ctx.fillStyle = opts.fill ?? '#ffffff';
     ctx.fillText(text, s / 2, y);

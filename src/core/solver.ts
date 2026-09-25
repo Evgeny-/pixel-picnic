@@ -125,6 +125,40 @@ export interface Difficulty {
   greedy: number;
 }
 
+/**
+ * How much thinking a level takes: walks the solution and counts the decision points where at
+ * least one other available box leads into a dead end (proved or at least not solvable within
+ * the solver budget). A level with 0 critical decisions can be won by tapping anything.
+ */
+export function criticalDecisions(level: LevelDef, budget = 1500, maxProbes = 60): { critical: number; decisions: number } {
+  const sim = Sim.fromLevel(level);
+  const moves = level.solution?.length ? level.solution : solve(sim.clone()).moves;
+  let critical = 0;
+  let decisions = 0;
+  let probes = 0;
+  for (const m of moves) {
+    sim.settle();
+    if (sim.status !== 'playing') break;
+    const legal = sim.legalMoves();
+    if (legal.length > 1) {
+      decisions++;
+      const good = new Set(sim.groupOf(m));
+      for (const alt of legal) {
+        if (good.has(alt) || probes >= maxProbes) continue;
+        probes++;
+        const probe = sim.clone();
+        probe.take(alt);
+        if (solve(probe, budget).status !== 'solved') {
+          critical++;
+          break;
+        }
+      }
+    }
+    if (!sim.take(m)) break;
+  }
+  return { critical, decisions };
+}
+
 export function estimateDifficulty(level: LevelDef | Sim, runs = 160, seed = 12345): Difficulty {
   const sim = level instanceof Sim ? level : Sim.fromLevel(level);
   const rng = new Rng(seed);

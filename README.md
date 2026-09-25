@@ -9,12 +9,12 @@ A cozy puzzle game with a surprising amount of planning under the hood.
 Works in any modern browser, on phones and on desktop. No install, no ads, no timers.
 
 <p align="center">
-  <img src="docs/gameplay.jpg" width="250" alt="Purple ants eating a bunny picture">
+  <img src="docs/gameplay.jpg" width="250" alt="Purple ants eating a watermelon picture">
   <img src="docs/map.jpg" width="250" alt="Level map with completed pictures">
   <img src="docs/win.jpg" width="250" alt="Level complete with three stars">
 </p>
 <p align="center">
-  <img src="docs/desktop.jpg" width="820" alt="Desktop layout: ants carrying cubes from a tropical fish picture">
+  <img src="docs/desktop.jpg" width="820" alt="Desktop layout: ants walking around the frame to eat a picture from the top">
 </p>
 
 ## How to play
@@ -79,9 +79,12 @@ Every 5th level is **hard**, every 10th is **super hard**.
   ends proves that every level can be finished. The Hint booster runs it live and tells you when
   your position has become unwinnable.
 - **Difficulty is measured, not guessed** ([`src/core/generator.ts`](src/core/generator.ts)). The
-  generator builds a queue around a known solution, then plays hundreds of simulated games with a
-  "casual" and a "greedy" player. It adjusts digging, spread, box sizes and mechanics until the win
-  rate lands in the band for that level's tier.
+  generator builds a queue around a known solution, plays hundreds of simulated games with a
+  "casual" and a "greedy" player, and tunes the queue (solver-checked local search) until the win
+  rates land in the band for that level's tier. On top of that it counts **critical decisions** —
+  moments on the way to victory where a wrong box leads into a dead end. No level can be won by
+  tapping at random: even the first ones need at least one real decision, super hard ones need six
+  or more and beat the greedy heuristic.
 - **Pictures** — emoji artwork is rasterized, reduced to 3–9 clean colors with k‑means in OKLab,
   cleaned of stray pixels, and placed on patterned backgrounds at 14×13 to 44×44 cubes
   ([`scripts/lib/pixelart.ts`](scripts/lib/pixelart.ts)).

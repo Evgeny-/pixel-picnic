@@ -105,7 +105,16 @@ export class QueueView {
     body.userData.boxId = id;
     group.add(body);
     const label = new LabelTexture(128);
-    const labelMat = new THREE.MeshBasicMaterial({ map: label.texture, transparent: true, depthWrite: false });
+    // Lit like the box itself, so the number reads as part of the lid.
+    const labelMat = new THREE.MeshStandardMaterial({
+      map: label.texture,
+      transparent: true,
+      depthWrite: false,
+      roughness: 0.45,
+      metalness: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+    });
     const labelMesh = new THREE.Mesh(this.labelGeo, labelMat);
     labelMesh.renderOrder = 5;
     group.add(labelMesh);
@@ -134,7 +143,9 @@ export class QueueView {
     this.buildTray(l);
     // label faces the camera
     for (const b of this.boxes.values()) {
-      b.labelMesh.rotation.set(-(Math.PI / 2 - l.tilt), 0, 0);
+      // Printed on the top face like a sticker: never clipped by the box itself.
+      b.labelMesh.rotation.set(-Math.PI / 2, 0, 0);
+      b.labelMesh.scale.setScalar(0.92);
     }
     this.syncFromSim(false);
   }
@@ -184,7 +195,7 @@ export class QueueView {
     }
     if (w === Where.Slot) {
       const s = this.sim.slots.findIndex((sl) => sl?.box === id);
-      const p = this.layout.slot[Math.max(0, s)];
+      const p = this.layout.slot[Math.max(0, Math.min(this.layout.slot.length - 1, s))];
       out.set(p.x, 0.17, p.z);
       return { where: 'slot', row: 0 };
     }
@@ -236,7 +247,7 @@ export class QueueView {
       b.mat.map = this.mysteryTex;
       b.mat.needsUpdate = b.hiddenShown === false;
       b.hiddenShown = true;
-      b.label.draw('?', { fill: '#ffffff' });
+      b.label.draw('?', labelStyle(MYSTERY));
     } else {
       if (b.hiddenShown) {
         b.hiddenShown = false;
@@ -245,11 +256,11 @@ export class QueueView {
         b.flip = 1;
       }
       b.mat.color.copy(b.color);
-      if (frozen) b.label.draw(String(this.sim.frozenLeft(b.id)), { fill: '#e6f8ff', stroke: '#2b6f9e' });
+      if (frozen) b.label.draw(String(this.sim.frozenLeft(b.id)), { fill: '#eefaff', stroke: '#3d7fae', shadow: 'rgba(30,70,110,0.4)' });
       else {
         const sl = this.sim.slots.find((s) => s?.box === b.id);
         const n = sl ? sl.left : this.sim.boxCount(b.id);
-        b.label.draw(String(n), { stroke: labelStroke(b.color) });
+        b.label.draw(String(n), labelStyle(b.color));
       }
     }
     if (b.ice && !frozen && b.ice.visible) {
@@ -299,7 +310,8 @@ export class QueueView {
   }
 
   isSettled(): boolean {
-    for (const b of this.boxes.values()) if (b.t < 1 || b.pop > 0) return false;
+    // A small box can empty while still flying to its slot: finished boxes don't count.
+    for (const b of this.boxes.values()) if (b.pop > 0 || (b.t < 1 && b.where !== 'gone')) return false;
     return true;
   }
 
@@ -307,7 +319,12 @@ export class QueueView {
     const l = this.layout;
     const s = l.boxSize;
     for (const b of this.boxes.values()) {
-      if (!b.group.visible) continue;
+      // Finished boxes stay hidden; everything else keeps animating even while faded out, so a
+      // box moving up from the hidden rows appears again (and the queue can settle).
+      if (b.where === 'gone' && b.pop === 0) {
+        b.group.visible = false;
+        continue;
+      }
       if (b.t < 1) {
         b.t = Math.min(1, b.t + dt / b.dur);
         const k = easeOutCubic(b.t);
@@ -340,6 +357,7 @@ export class QueueView {
         if (k >= 1) {
           b.group.visible = false;
           b.pop = 0;
+          continue;
         }
       }
       if (b.hint > 0) {
@@ -352,13 +370,10 @@ export class QueueView {
       const f = b.fade;
       const fs = 0.55 + 0.45 * f;
       b.group.scale.set(sx * fs, sy * fs, sz * fs);
-      if (b.where === 'gone' && b.pop === 0) {
-        b.group.visible = false;
-        continue;
-      }
       b.group.visible = f > 0.05 || b.pop > 0;
+      if (!b.group.visible) continue;
       b.body.position.x = offX;
-      b.labelMesh.position.set(offX, BOX_H + 0.06, 0.08);
+      b.labelMesh.position.set(offX, BOX_H + 0.012, 0);
       b.labelMesh.visible = f > 0.75;
       if (!b.hiddenShown) b.mat.color.copy(b.color).lerp(DIM, (1 - f) * 0.9);
       if (b.flip > 0) {
@@ -412,10 +427,16 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
-/** Dark outline tinted by the box color keeps numbers readable on light boxes. */
-function labelStroke(c: THREE.Color): string {
+/** Number colors derived from the box color: a light tint, a darker rim and a soft shadow. */
+function labelStyle(c: THREE.Color): { fill: string; stroke: string; shadow: string } {
   const hsl = { h: 0, s: 0, l: 0 };
-  c.getHSL(hsl);
-  const l = Math.min(0.24, hsl.l * 0.4);
-  return `hsl(${Math.round(hsl.h * 360)}, ${Math.round(Math.min(0.6, hsl.s) * 100)}%, ${Math.round(l * 100)}%)`;
+  c.getHSL(hsl, THREE.SRGBColorSpace);
+  const h = Math.round(hsl.h * 360);
+  const s = Math.round(Math.min(0.75, hsl.s) * 100);
+  const light = hsl.l > 0.72;
+  return {
+    fill: `hsl(${h}, ${Math.round(s * 0.5)}%, ${light ? 99 : 96}%)`,
+    stroke: `hsl(${h}, ${s}%, ${Math.round(Math.max(0.16, hsl.l * (light ? 0.5 : 0.42)) * 100)}%)`,
+    shadow: `hsla(${h}, ${s}%, ${Math.round(Math.max(0.1, hsl.l * 0.3) * 100)}%, 0.45)`,
+  };
 }

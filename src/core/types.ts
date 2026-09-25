@@ -40,6 +40,10 @@ export interface LevelStats {
   greedy: number;
   /** DFS nodes the solver needed to find a solution. */
   nodes: number;
+  /** Decisions on the solution path where a wrong box leads into a dead end. */
+  critical?: number;
+  /** Decisions on the solution path with more than one available box. */
+  decisions?: number;
   pixels: number;
   boxes: number;
   colors: number;

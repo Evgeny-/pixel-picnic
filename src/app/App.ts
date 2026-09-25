@@ -245,7 +245,7 @@ export class App {
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       this.hud.setDebug(
         st
-          ? `casual ${pct(st.casual)} · greedy ${pct(st.greedy)} · ${st.pixels} cubes · ${level.boxes.length} boxes · ${level.picture.palette.length} col`
+          ? `casual ${pct(st.casual)} · greedy ${pct(st.greedy)} · 🧠 ${st.critical ?? '?'}/${st.decisions ?? '?'} · ${st.pixels} cubes · ${level.boxes.length} boxes`
           : `${level.boxes.length} boxes · ${level.picture.palette.length} col`,
       );
     }
@@ -344,10 +344,13 @@ export class App {
     if (!g || !hud) return;
     const y = Math.max(90, hud.insets().top + 4);
     if (this.tutorial === 1) {
+      // Point at the solver's first move: even level 1 has a box that would be a mistake.
       const probe = g.sim.clone();
       const moves = probe.legalMoves();
       const exposed = probe.exposedCounts();
-      const best = moves.find((m) => exposed[probe.boxColor(m)] > 0) ?? moves[0];
+      const planned = g.level.solution?.[0];
+      const best =
+        planned !== undefined && probe.canTake(planned) ? planned : (moves.find((m) => exposed[probe.boxColor(m)] > 0) ?? moves[0]);
       const p = g.view.toScreen(g.view.queue.boxTop(best, new THREE.Vector3()));
       hud.showTutorial(t('tutorial1'), y, p);
     } else if (this.tutorial === 2) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Sim, type SimEvent } from '../src/core/sim';
-import { solve, estimateDifficulty } from '../src/core/solver';
+import { solve, estimateDifficulty, criticalDecisions } from '../src/core/solver';
 import { generateLevel, replay } from '../src/core/generator';
 import { Rng } from '../src/core/rng';
 import type { BoxDef, LevelDef, PictureDef, Side } from '../src/core/types';
@@ -154,6 +154,15 @@ describe('solver', () => {
     const boxes = [{ id: 0, color: 0, count: 6 }, { id: 1, color: 1, count: 6 }];
     expect(solve(Sim.fromLevel(level(boxes, [[0], [1]], 2))).status).toBe('solved');
     expect(solve(Sim.fromLevel(level(boxes, [[0], [1]], 1))).status).toBe('unsolvable');
+  });
+
+  it('counts critical decisions: taking the buried color first is a dead end', () => {
+    // top row A A, bottom row B B, one slot: B must go first.
+    const pic: PictureDef = { id: 'trap', w: 2, h: 2, palette: ['#f00', '#00f'], cells: '00' + '11' };
+    const lvl = level([{ id: 0, color: 0, count: 2 }, { id: 1, color: 1, count: 2 }], [[0], [1]], 1, ['bottom'], pic);
+    lvl.solution = solve(Sim.fromLevel(lvl)).moves;
+    expect(lvl.solution).toEqual([1, 0]);
+    expect(criticalDecisions(lvl)).toEqual({ critical: 1, decisions: 1 });
   });
 
   it('difficulty estimate is 1 for a trivial level', () => {
