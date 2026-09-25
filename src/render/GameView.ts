@@ -3,7 +3,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Sim, SimEvent } from '../core/sim';
 import type { LevelDef } from '../core/types';
 import { shapeFor } from '../core/progression';
-import { BoardView } from './BoardView';
+import { BoardView, NIGHT_SHADE } from './BoardView';
 import { QueueView } from './QueueView';
 import { AntsView } from './AntsView';
 import { NestView } from './NestView';
@@ -59,6 +59,8 @@ export class GameView {
   private tmp = new THREE.Vector3();
   private levelGroup = new THREE.Group();
   private zoomPunch = 0;
+  private theme: WorldTheme | null = null;
+  private night = false;
 
   constructor(container: HTMLElement, cb: ViewCallbacks) {
     this.cb = cb;
@@ -102,16 +104,43 @@ export class GameView {
     const shape = level.shape ?? shapeFor(level.n);
     this.board = new BoardView(sim, palette, theme.frame, shape);
     this.board.cubes.castShadow = !LOW_END;
-    this.queue = new QueueView(sim, palette);
+    this.queue = new QueueView(sim, palette, level.queueHint ?? 'count');
     this.nest = new NestView(theme.roof);
     this.ants = new AntsView(palette, this.board, sim, this.cb, shape);
     this.levelGroup.add(this.board.group, this.queue.group, this.nest.group, this.ants.group);
-    this.hemi.color.set(theme.sky);
-    this.hemi.groundColor.set(theme.bounce);
-    this.scene.background = new THREE.Color(theme.bg);
+    this.theme = theme;
     this.ground.setTheme(theme);
     this.ambient.setTheme(theme);
+    this.applyLook();
     this.relayout(true);
+  }
+
+  /** Night mode: moonlight, a dark ground and darker surfaces; the pictures keep their colors. */
+  setNight(on: boolean): void {
+    this.night = on;
+    this.applyLook();
+  }
+
+  private applyLook(): void {
+    const theme = this.theme;
+    if (!theme) return;
+    const n = this.night;
+    const bg = new THREE.Color(theme.bg);
+    if (n) bg.lerp(NIGHT_SHADE, 0.72);
+    this.scene.background = bg;
+    this.hemi.color.set(n ? '#9aa8e6' : theme.sky);
+    this.hemi.groundColor.set(theme.bounce);
+    if (n) this.hemi.groundColor.lerp(NIGHT_SHADE, 0.6);
+    this.hemi.intensity = n ? 0.62 : 0.9;
+    this.sun.color.set(n ? '#dbe3ff' : '#fff4e0');
+    this.sun.intensity = n ? 1.75 : 2.9;
+    this.renderer.toneMappingExposure = n ? 0.95 : 1.05;
+    this.scene.environmentIntensity = n ? 0.3 : 0.42;
+    this.ground.setNight(n);
+    this.ambient.setNight(n);
+    this.board?.setNight(n);
+    this.queue?.setNight(n);
+    this.nest?.setNight(n);
   }
 
   /** Swap the simulation instance (undo / shuffle restore a snapshot). */
@@ -149,6 +178,7 @@ export class GameView {
       h: this.sim.h,
       slots: this.sim.slots.length,
       columns: this.sim.columns.length,
+      rows: this.level.visibleRows ?? 4,
     });
     const changed = force || !this.layout || l.mode !== this.layout.mode || l.slot.length !== this.layout.slot.length;
     this.layout = l;
@@ -229,11 +259,14 @@ export class GameView {
    */
   apply(events: SimEvent[], roundSec = 0.105): void {
     let queueChanged = false;
+    const slots = Math.max(1, this.sim.slots.length);
     for (const e of events) {
       switch (e.t) {
         case 'ant': {
           const from = e.box >= 0 ? this.queue.boxTop(e.box, this.tmp) : this.tmp.set(0, 0, 0);
-          this.ants.spawn(from.clone(), e.cell, e.color, (e.due - this.sim.roundNo) * roundSec);
+          // Slots take turns within a round, so ants climb out one after another, not in bursts.
+          const delay = (e.slot / slots) * roundSec;
+          this.ants.spawn(from.clone(), e.cell, e.color, (e.due - this.sim.roundNo) * roundSec, delay);
           break;
         }
         case 'pickup':

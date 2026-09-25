@@ -26,11 +26,13 @@ export interface LayoutInput {
   h: number;
   slots: number;
   columns: number;
+  /** Queue rows the player can see. */
+  rows: number;
 }
 
-const BOX = 1.18;
-const SPACING = 1.6;
-const ROW = 1.52;
+const BOX = 1.12;
+const SPACING = 1.55;
+const ROW = 1.4;
 
 export function computeLayout(inp: LayoutInput): Layout {
   return inp.aspect > 1.15 ? landscape(inp) : portrait(inp);
@@ -41,23 +43,25 @@ function rowX(n: number, cx: number, spacing: number): number[] {
 }
 
 function portrait(inp: LayoutInput): Layout {
+  // The picture gets the full width (square pictures too); the ant house, the slots and the
+  // visible queue rows are packed tightly below it.
   const maxW = 9.6;
-  const maxH = 8.6;
+  const maxH = 9.6;
   const cell = Math.min(maxW / inp.w, maxH / inp.h);
   const picW = cell * inp.w;
   const picH = cell * inp.h;
-  const frame = 0.34;
+  const frame = 0.32;
   const picX0 = -picW / 2;
   const picZ0 = -picH;
-  const nest = { x: 0, z: 1.55 };
-  const slotZ = 3.35;
+  const nest = { x: 0, z: 1.3 };
+  const slotZ = 2.85;
   const slotSpacing = inp.slots > 5 ? Math.min(SPACING, 9.4 / inp.slots) : SPACING;
   const slot = rowX(inp.slots, 0, slotSpacing).map((x) => ({ x, z: slotZ }));
   const colSpacing = inp.columns > 5 ? 9.4 / inp.columns : SPACING;
   const queueCol = rowX(inp.columns, 0, colSpacing);
-  const queueZ0 = 5.25;
-  const rowsVisible = 4;
-  const maxX = Math.max(picW / 2 + frame, (slot.length * slotSpacing) / 2, (inp.columns * colSpacing) / 2) + 0.25;
+  const queueZ0 = slotZ + 1.7;
+  const rowsVisible = inp.rows;
+  const maxX = Math.max(picW / 2 + frame + cell * 0.35, (slot.length * slotSpacing) / 2, (inp.columns * colSpacing) / 2) + 0.08;
   return {
     mode: 'portrait',
     tilt: (30 * Math.PI) / 180,
@@ -75,7 +79,7 @@ function portrait(inp: LayoutInput): Layout {
     queueRow: ROW,
     queueRowsVisible: rowsVisible,
     boxSize: Math.min(BOX, colSpacing * 0.78, slotSpacing * 0.78),
-    bounds: { minX: -maxX, maxX, minZ: picZ0 - frame - 0.25, maxZ: queueZ0 + (rowsVisible - 1) * ROW + 0.9 },
+    bounds: { minX: -maxX, maxX, minZ: picZ0 - frame - cell * 0.35 - 0.12, maxZ: queueZ0 + (rowsVisible - 1) * ROW + 0.75 },
   };
 }
 
@@ -98,8 +102,8 @@ function landscape(inp: LayoutInput): Layout {
   const slot = rowX(inp.slots, rightCx, slotSpacing).map((x) => ({ x, z: slotZ }));
   const colSpacing = inp.columns > 5 ? 9 / inp.columns : SPACING;
   const queueCol = rowX(inp.columns, rightCx, colSpacing);
-  const queueZ0 = slotZ - 1.85;
-  const rowsVisible = 5;
+  const queueZ0 = slotZ - 1.75;
+  const rowsVisible = inp.rows;
   // The nest sits under the middle of the picture, as in portrait: ants fetch the pieces closest
   // to home first, so that's where the rules measure distances from.
   const nest = { x: boardCx, z: bottom + 1.45 };

@@ -11,7 +11,7 @@ import { PICTURES, type PictureEntry } from './pictures-manifest';
 import { renderEmojiRGBA } from './lib/emoji';
 import { pixelize, fillBackground, pickBackground, type PixelGrid } from './lib/pixelart';
 import { ensureCritical, generateLevel, objective, tierTarget, tuneLevel } from '../src/core/generator';
-import { phaseDifficulty } from '../src/core/solver';
+import { phaseDifficulty, plannerRate } from '../src/core/solver';
 import { buildFences, LEVELS_PER_WORLD, planLevel, shapeFor, worldOf } from '../src/core/progression';
 import { encodeCells, tierForLevel, type LevelDef, type PictureDef } from '../src/core/types';
 import { Rng, hashString } from '../src/core/rng';
@@ -132,10 +132,12 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
     tier,
     name: entry.name,
     shape: shapeFor(n),
+    queueHint: plan.queueHint,
     stats: {
       casual: +res.diff.casual.toFixed(3),
       greedy: +res.diff.greedy.toFixed(3),
       random: +res.diff.random.toFixed(3),
+      planner: +plannerRate(res.level, 8, n * 17 + 1).toFixed(3),
       nodes: res.nodes,
       critical: crit.critical,
       decisions: crit.decisions,
@@ -177,7 +179,7 @@ for (let n = 1; n <= COUNT; n++) {
   console.log(
     `#${String(n).padStart(3)} ${tier.padEnd(9)} ${best.entry.id.padEnd(22)} ${lv.picture.w}x${lv.picture.h} px=${String(st.pixels).padStart(4)} col=${st.colors} ` +
       `boxes=${String(st.boxes).padStart(2)} max=${String(Math.max(...lv.boxes.map((b) => b.count))).padStart(2)} q=${lv.columns.length}/${lv.slots} fence=${fenceTag(lv).padEnd(4)} ` +
-      `rnd=${st.random!.toFixed(2)} cas=${st.casual.toFixed(2)} gr=${st.greedy.toFixed(2)} crit=${st.critical}/${st.decisions} ` +
+      `rows=${lv.visibleRows ?? 4} rnd=${st.random!.toFixed(2)} cas=${st.casual.toFixed(2)} gr=${st.greedy.toFixed(2)} plan=${st.planner!.toFixed(2)} crit=${st.critical}/${st.decisions} ` +
       `@1/3 rnd=${ph.random[0].toFixed(2)} cas=${ph.casual[0].toFixed(2)} ${best.dist === 0 ? 'ok ' : 'OFF ' + best.dist.toFixed(2)} ${best.ms.toFixed(0)}ms`,
   );
 }

@@ -23,9 +23,9 @@ import type { Rng } from './rng';
 export const Where = { Queue: 0, Slot: 1, Done: 2 } as const;
 
 /** Rounds from the slots to the bottom middle of the picture, plus time to grab a cube. */
-const BASE_TRIP = 14;
+const BASE_TRIP = 9;
 /** Rounds to walk across the whole picture. */
-const CROSS_TRIP = 28;
+const CROSS_TRIP = 18;
 /** "Not reachable" walking distance. */
 const INF = 0x3fffffff;
 /** Distances are counted in half cells (the nest sits between two cells on even-width pictures). */

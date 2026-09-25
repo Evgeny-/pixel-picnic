@@ -8,6 +8,8 @@ export interface Settings {
   speed: number;
   /** Debug mode: every level unlocked, difficulty stats visible. */
   debug: boolean;
+  /** Night mode: follow the system (auto), always on or always off. */
+  night?: 'auto' | 'on' | 'off';
 }
 
 export interface SaveData {

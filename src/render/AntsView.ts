@@ -85,6 +85,8 @@ interface Ant {
   back: number;
   /** Walking speed multiplier, chosen so the ant reaches the cube in time. */
   spd: number;
+  /** Game seconds before the ant climbs out of its box (slots take turns within a round). */
+  delay: number;
 }
 
 const HIP_Z = [0.15, 0.07, -0.01];
@@ -229,7 +231,7 @@ export class AntsView {
    * An ant leaves a slot for `cell`. `dueIn` is how many game seconds the rules give it before the
    * cube is carried off; the ant paces itself to arrive a moment earlier and nibbles until then.
    */
-  spawn(from: THREE.Vector3, cell: number, color: number, dueIn = 2): void {
+  spawn(from: THREE.Vector3, cell: number, color: number, dueIn = 2, delay = 0): void {
     if (this.ants.length >= MAX_ANTS) return;
     const seed = Math.random();
     const sx = from.x + (seed - 0.5) * 0.3;
@@ -242,12 +244,12 @@ export class AntsView {
     const ant: Ant = {
       color, cell, pts, cum: [], dist: 0, phase: 'out', timer: 0, yaw: Math.PI, legPhase: seed * 6,
       startY: from.y, seed, line: plan.block, lineD: [], x: pts[0], z: pts[1], y: from.y, scale: 0.2,
-      wait: 0, back: plan.inside.length / 2, spd: 1,
+      wait: 0, back: plan.inside.length / 2, spd: 1, delay,
     };
     this.measure(ant);
     const len = ant.cum[ant.cum.length - 1];
     const base = 3.3;
-    ant.spd = Math.max(0.7, Math.min(2.2, len / Math.max(0.3, dueIn - 0.3) / base));
+    ant.spd = Math.max(0.7, Math.min(2.2, len / Math.max(0.3, dueIn - delay - 0.3) / base));
     // Blocking distances were measured along the inside part; shift them to the full path.
     const entryDist = ant.cum[entryIndex];
     ant.lineD = plan.blockD.map((d) => entryDist + d);
@@ -556,6 +558,13 @@ export class AntsView {
     const r = this.rect;
     const keep: Ant[] = [];
     for (const a of this.ants) {
+      if (a.delay > 0) {
+        // Still inside the box, waiting for its turn to climb out.
+        a.delay -= dt * this.speed;
+        (a as Ant & { _s: number })._s = 0;
+        keep.push(a);
+        continue;
+      }
       let moving = false;
       if (a.phase === 'out' || a.phase === 'home') {
         const total = a.cum[a.cum.length - 1];

@@ -103,6 +103,16 @@ export class AmbientView {
   private readonly tmpC = new THREE.Color();
   private readonly e = new THREE.Euler();
 
+  private night = false;
+  private baseOpacity = 1;
+
+  /** Night mode: particles fade to a soft glimmer. */
+  setNight(on: boolean): void {
+    this.night = on;
+    const mat = this.mesh?.material as THREE.MeshBasicMaterial | undefined;
+    if (mat) mat.opacity = this.baseOpacity * (on ? 0.6 : 1);
+  }
+
   setTheme(theme: WorldTheme): void {
     this.dispose();
     this.style = STYLES[theme.ground.kind];
@@ -115,6 +125,8 @@ export class AmbientView {
       side: THREE.DoubleSide,
       blending: st.additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
+    this.baseOpacity = st.opacity;
+    mat.opacity = st.opacity * (this.night ? 0.6 : 1);
     this.mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, st.count);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 12;

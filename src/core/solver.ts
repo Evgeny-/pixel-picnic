@@ -82,6 +82,71 @@ export function solve(start: Sim, maxNodes = 60000): SolveResult {
 
 export type Policy = 'casual' | 'greedy' | 'random';
 
+/** Default number of queue rows a player can see. */
+export const VISIBLE_ROWS = 4;
+
+/** How good a settled position looks to a player: progress, free slots, no stranded boxes. */
+function positionScore(sim: Sim, exposed: Int32Array): number {
+  if (sim.status === 'won') return 1e7;
+  const eaten = sim.s.colorCount.reduce((a, b) => a + b, 0) - sim.left;
+  if (sim.status === 'stuck') return -1e6 + eaten;
+  sim.exposedCounts(exposed);
+  let v = eaten;
+  for (const sl of sim.slots) {
+    if (!sl) v += 15;
+    else if (exposed[sl.color] === 0) v -= 40;
+  }
+  return v;
+}
+
+/**
+ * Best tap for a thoughtful player who looks `depth` more taps ahead. With depth <= visible rows
+ * - 2 every box such a player reasons about is one they can actually see in the queue.
+ */
+function plannerMove(sim: Sim, depth: number, rng: Rng, exposed: Int32Array): number {
+  const look = (s: Sim, d: number): number => {
+    const moves = s.legalMoves();
+    if (d === 0 || !moves.length || s.status !== 'playing') return positionScore(s, exposed);
+    let best = -Infinity;
+    for (const m of moves) {
+      const next = s.clone();
+      next.take(m);
+      next.settle();
+      best = Math.max(best, look(next, d - 1));
+      if (best >= 1e7) break;
+    }
+    return best;
+  };
+  const moves = sim.legalMoves();
+  let pick = moves[0];
+  let best = -Infinity;
+  for (const m of moves) {
+    const next = sim.clone();
+    next.take(m);
+    next.settle();
+    const v = look(next, depth) + rng.next() * 0.5;
+    if (v > best) {
+      best = v;
+      pick = m;
+    }
+  }
+  return pick;
+}
+
+/** Plays a game as the planner; `rows` = visible queue rows. */
+export function plannerPlayout(start: Sim, rng: Rng, rows = VISIBLE_ROWS): boolean {
+  const sim = start.clone();
+  const exposed = new Int32Array(sim.s.colors);
+  const depth = Math.max(1, rows - 2);
+  for (let guard = 0; guard < 2000; guard++) {
+    sim.settle();
+    if (sim.status !== 'playing') return sim.status === 'won';
+    if (!sim.legalMoves().length) return false;
+    sim.take(plannerMove(sim, depth, rng, exposed));
+  }
+  return false;
+}
+
 /**
  * Simulated player. 'casual' taps a random box whose color is currently reachable
  * (and sometimes a random one); 'greedy' takes the best-looking box by moveScore.
@@ -127,6 +192,17 @@ export interface Difficulty {
   random: number;
   /** Random player's win rate from a third of the way through the solution (if measured). */
   phase?: number;
+  /** Win rate of the planner that only sees the visible queue rows (if measured). */
+  planner?: number;
+}
+
+/** Win rate of the visible-rows planner. */
+export function plannerRate(level: LevelDef, runs = 8, seed = 4242): number {
+  const sim = Sim.fromLevel(level);
+  const rng = new Rng(seed);
+  let wins = 0;
+  for (let i = 0; i < runs; i++) if (plannerPlayout(sim, rng, level.visibleRows ?? VISIBLE_ROWS)) wins++;
+  return wins / runs;
 }
 
 /**

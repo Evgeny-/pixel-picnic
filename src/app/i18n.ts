@@ -74,6 +74,8 @@ const STRINGS = {
   autoSolve: { ru: 'Автопрохождение', en: 'Auto-solve' },
   skipLevel: { ru: 'Пропустить уровень', en: 'Skip level' },
   on: { ru: 'Вкл', en: 'On' },
+  auto: { ru: 'Авто', en: 'Auto' },
+  nightMode: { ru: 'Ночной режим', en: 'Night mode' },
   off: { ru: 'Выкл', en: 'Off' },
   noSolution: { ru: 'Солвер не нашёл решения из этой позиции', en: 'The solver found no solution from here' },
   tutorial3: { ru: 'Не забивай слоты цветами, до которых муравьям не добраться!', en: 'Don’t fill the slots with colors the ants can’t reach!' },

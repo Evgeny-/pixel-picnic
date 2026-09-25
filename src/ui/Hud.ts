@@ -86,7 +86,7 @@ export class Hud {
       'div',
       { class: 'hud-top' },
       h('div', { class: 'hud-left' }, pause, home),
-      h('div', { class: 'hud-title' }, this.title, h('div', {}, this.tierEl), prog, this.debugEl),
+      h('div', { class: 'hud-title' }, h('div', { class: 'title-row' }, this.title, this.tierEl), prog, this.debugEl),
       this.speedBtn,
     );
     this.dock = h('div', { class: 'boosters' });
@@ -108,7 +108,9 @@ export class Hud {
   setLevel(n: number, tier: Tier): void {
     this.title.textContent = t('level', { n });
     this.tierEl.className = 'tier ' + tier + (tier === 'normal' ? ' hidden' : '');
-    this.tierEl.innerHTML = tier === 'superhard' ? `${emoji('skull', 16)} ${t('superhard')}` : `${emoji('fire', 16)} ${t('hard')}`;
+    // Just the icon here; the full "hard / super hard" banner shows when the level starts.
+    this.tierEl.innerHTML = tier === 'superhard' ? emoji('skull', 16) : emoji('fire', 16);
+    this.tierEl.title = tier === 'superhard' ? t('superhard') : t('hard');
   }
 
   /** Debug line with the level's difficulty numbers (null hides it). */

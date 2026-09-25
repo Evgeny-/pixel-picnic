@@ -8,6 +8,7 @@ import { roundedRectShape } from './BoardView';
 const BOX_H = 0.62;
 const MYSTERY = new THREE.Color('#9b94b3');
 const DIM = new THREE.Color('#8f8a7c');
+const PULSE_RED = new THREE.Color('#ff5a4a');
 
 interface BoxVis {
   id: number;
@@ -74,19 +75,37 @@ export class QueueView {
   private tray: THREE.Group | null = null;
   private readonly trayMat = new THREE.MeshStandardMaterial({ color: '#efd3a0', roughness: 0.62 });
   private readonly padMat = new THREE.MeshStandardMaterial({ color: '#d9b67c', roughness: 0.85 });
+  private readonly padBase = new THREE.Color('#d9b67c');
   private layout!: Layout;
   private sim: Sim;
   private colors: THREE.Color[];
   private readonly tmp = new THREE.Vector3();
   private readonly tmp2 = new THREE.Vector3();
   private slotPulse = 0;
+  /** "+3" under a column: how many boxes are still hidden below the visible rows. */
+  private more: { mesh: THREE.Mesh; label: LabelTexture }[] = [];
 
-  constructor(sim: Sim, palette: string[]) {
+  /** Show how many boxes are hidden in a column ("+3"), or only that there are some ("?"). */
+  private hint: 'count' | 'mystery' = 'count';
+
+  constructor(sim: Sim, palette: string[], hint: 'count' | 'mystery' = 'count') {
+    this.hint = hint;
     this.sim = sim;
     this.colors = palette.map((c) => new THREE.Color(c));
     for (let id = 0; id < sim.boxIds; id++) {
       if (sim.boxColor(id) < 0) continue;
       this.boxes.set(id, this.makeBox(id));
+    }
+    for (let c = 0; c < sim.columns.length; c++) {
+      const label = new LabelTexture(128);
+      const mesh = new THREE.Mesh(
+        this.labelGeo,
+        new THREE.MeshBasicMaterial({ map: label.texture, transparent: true, depthWrite: false }),
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.renderOrder = 5;
+      this.group.add(mesh);
+      this.more.push({ mesh, label });
     }
     const seen = new Set<number>();
     for (let id = 0; id < sim.boxIds; id++) {
@@ -148,6 +167,13 @@ export class QueueView {
     this.sim = sim;
   }
 
+  /** Night mode: the slot tray darkens (the boxes keep their colors). */
+  setNight(on: boolean): void {
+    this.trayMat.color.set(on ? '#6c6586' : '#efd3a0');
+    this.padBase.set(on ? '#57506f' : '#d9b67c');
+    this.padMat.color.copy(this.padBase);
+  }
+
   setLayout(l: Layout): void {
     this.layout = l;
     this.buildTray(l);
@@ -157,6 +183,13 @@ export class QueueView {
       b.labelMesh.rotation.set(-Math.PI / 2, 0, 0);
       b.labelMesh.scale.setScalar(0.92);
     }
+    this.more.forEach((m, c) => {
+      // Just past the last visible row (rows grow downwards in portrait, upwards in landscape,
+      // where the label has to clear the boxes' height).
+      const p = queuePos(l, c, l.queueRowsVisible - (l.queueRow > 0 ? 0.4 : -0.15));
+      m.mesh.position.set(p.x, 0.02, p.z);
+      m.mesh.scale.setScalar(l.boxSize * 0.8);
+    });
     this.syncFromSim(false);
   }
 
@@ -193,6 +226,22 @@ export class QueueView {
     this.group.add(tray);
   }
 
+  /**
+   * X of a queue column: the columns that still have boxes close ranks and stay centred, so an
+   * emptied column doesn't leave a hole in the middle.
+   */
+  private columnX(col: number): number {
+    const l = this.layout;
+    const n = l.queueCol.length;
+    const spacing = n > 1 ? l.queueCol[1] - l.queueCol[0] : 1.6;
+    const center = (l.queueCol[0] + l.queueCol[n - 1]) / 2;
+    const active: number[] = [];
+    for (let c = 0; c < this.sim.columns.length; c++) if (this.sim.columns[c].length) active.push(c);
+    const k = active.indexOf(col);
+    if (k < 0) return l.queueCol[col];
+    return center + (k - (active.length - 1) / 2) * spacing;
+  }
+
   /** Target position for a box according to the simulation. */
   private targetOf(id: number, out: THREE.Vector3): { where: BoxVis['where']; row: number } {
     const w = this.sim.boxWhere[id];
@@ -200,7 +249,7 @@ export class QueueView {
       const col = this.sim.boxCol[id];
       const row = this.sim.columns[col].indexOf(id);
       const p = queuePos(this.layout, col, row);
-      out.set(p.x, 0, p.z);
+      out.set(this.columnX(col), 0, p.z);
       return { where: 'queue', row };
     }
     if (w === Where.Slot) {
@@ -247,6 +296,15 @@ export class QueueView {
 
   refreshLabels(): void {
     for (const b of this.boxes.values()) this.refreshLabel(b);
+    if (!this.layout) return;
+    this.more.forEach((m, c) => {
+      const hidden = Math.max(0, this.sim.columns[c].length - this.layout.queueRowsVisible);
+      m.mesh.visible = hidden > 0;
+      m.mesh.position.x = this.columnX(c);
+      if (hidden > 0) {
+        m.label.draw(this.hint === 'mystery' ? '?' : `+${hidden}`, { fill: '#ffffff', stroke: 'rgba(40, 28, 70, 0.9)', shadow: 'rgba(0, 0, 0, 0.3)', scale: 0.85 });
+      }
+    });
   }
 
   private refreshLabel(b: BoxVis): void {
@@ -376,7 +434,8 @@ export class QueueView {
         b.group.position.y = b.to.y + Math.abs(Math.sin(b.hint * 5)) * 0.35;
       }
       // rows beyond the visible range shrink and dim, deeper ones disappear
-      const targetFade = b.where !== 'queue' ? 1 : b.row < l.queueRowsVisible ? 1 : b.row === l.queueRowsVisible ? 0.5 : 0;
+      // Only the visible rows show; deeper boxes rise into view as the column moves up.
+      const targetFade = b.where !== 'queue' ? 1 : b.row < l.queueRowsVisible ? 1 : 0;
       b.fade += (targetFade - b.fade) * Math.min(1, dt * 8);
       const f = b.fade;
       const fs = 0.55 + 0.45 * f;
@@ -399,7 +458,7 @@ export class QueueView {
     if (this.slotPulse > 0) {
       this.slotPulse = Math.max(0, this.slotPulse - dt * 0.7);
       const k = Math.sin(this.slotPulse * Math.PI * 4) * this.slotPulse;
-      this.padMat.color.setRGB(0.85 + k * 0.15, 0.71 - k * 0.3, 0.49 - k * 0.3);
+      this.padMat.color.copy(this.padBase).lerp(PULSE_RED, Math.max(0, k) * 0.6);
     }
   }
 
@@ -441,6 +500,10 @@ export class QueueView {
 
   dispose(): void {
     for (const lk of this.links) lk.chain.dispose();
+    for (const m of this.more) {
+      m.label.dispose();
+      (m.mesh.material as THREE.Material).dispose();
+    }
     for (const b of this.boxes.values()) {
       b.mat.dispose();
       b.label.dispose();

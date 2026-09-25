@@ -25,10 +25,15 @@ Works in any modern browser, on phones and on desktop. No install, no ads, no ti
    free space. **A piece is reachable when there's a free way to it**: from outside, or through the
    tunnels and gaps already eaten into the picture, from any side of the piece.
 3. Tap a box at the front of the queue. It hops into a free **slot** (five in the first levels,
-   four later) and its ants run out; each ant heads for a reachable piece of its color and claims
-   it. The piece stays in place until its ant has walked up and grabbed it — only then is the way
-   to the pieces behind it free. The number on the box is how many ants are still inside.
-4. When a box is empty, its slot frees up. But if every slot holds a color the ants can't reach
+   four later) and its ants climb out one after another; each ant heads for a reachable piece of
+   its color and claims it. The piece stays in place until its ant has walked up and grabbed it —
+   only then is the way to the pieces behind it free. The number on the box is how many ants are
+   still inside.
+4. You only see the first **four rows** of the queue (five in some easier levels, just three in
+   many hard ones); deeper boxes rise into view as the columns move up. A small "+3" under a
+   column tells how many are still hidden — or, on trickier levels, only a "?" says that
+   something is. When a column runs out, the others close ranks.
+5. When a box is empty, its slot frees up. But if every slot holds a color the ants can't reach
    yet, **the colony gets stuck**. Think a few bites ahead: which column hides the color you need,
    and which boxes can you afford to park on the way?
 
@@ -66,6 +71,9 @@ Every 5th level is **hard**, every 10th is **super hard**.
 - **Fast by default** — ants are quick, and 2× / 3× speed is free.
 - **Desktop extras** — hover a box to see which cubes its ants could reach right now.
 - **Always up to date** — the game notices a new deployment and reloads itself on the map.
+- **Night mode** — dark grass, moonlight and a dark interface (the pictures keep their colors,
+  the ant house lights its windows); automatic with the system's dark theme or on/off in the
+  settings.
 - **English and Russian**, progress saved in the browser.
 
 ## Under the hood
@@ -74,7 +82,7 @@ Every 5th level is **hard**, every 10th is **super hard**.
   shortest-walk distance field over the free cells — from the nest around the frame to every
   unfenced border cell and on through the tunnels already eaten — and updates it incrementally as
   pieces disappear. Each color keeps a priority queue of reachable pieces keyed by that walk, so
-  every 105 ms (at 1×) each occupied slot sends one ant to the piece of its color that is really
+  every 160 ms (at 1×) each occupied slot lets one ant out, heading for the piece of its color that is really
   the closest on foot. The ant claims it, and the piece is carried off when the ant arrives — the
   trip time depends on the distance — which is when the cells behind it open up. The 3D view only animates the resulting events, so the game, the solver
   and the level generator share exactly the same rules.
@@ -89,13 +97,16 @@ Every 5th level is **hard**, every 10th is **super hard**.
   three players — one tapping **at random**, a "casual" one who only takes colors the ants can
   reach, and a greedy one — and tunes the queue (solver-checked local search: swapping, merging,
   splitting and moving boxes) until the win rates land in the band for the level's tier. Tapping
-  at random wins about 10% of the first three tutorial levels and practically never after that
+  at random wins about 10% of the first tutorial levels and practically never after that
   (0.7% on average for normal levels, 0% for hard and super hard ones); a casual player wins about
   12% of normal levels, 4% of hard ones and almost never a super hard one. Levels are also tuned
   so the thinking doesn't end after the first taps (the random player is re-measured from a third
-  of the way in). On top of that it counts **critical decisions** — moments on the way to victory
-  where a wrong box leads into a dead end: about six per normal level and eight or more on hard
-  ones. Fewer queue columns, four slots and fences are extra difficulty levers.
+  of the way in). A fourth, **thinking player** plans two or three taps ahead but — like you — only
+  sees the visible queue rows: it should win most normal levels (they're fair), about half of the
+  hard ones and seldom a super hard one, so showing four rows instead of five is a real
+  difficulty lever. On top of that the generator counts **critical decisions** — moments on the
+  way to victory where a wrong box leads into a dead end: about six per normal level and eight or
+  more on hard ones. Fewer queue columns, four slots and fences are extra difficulty levers.
 - **Pictures** — about 300 curated emoji from three open sets (Fluent, Twemoji and Noto, whose
   detailed scenes — cities at night, mountains, lighthouses, castles, fairgrounds — make the
   hardest levels), rasterized, reduced to 3–10 clean colors with k‑means in OKLab, cleaned of stray

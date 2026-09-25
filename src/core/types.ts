@@ -40,6 +40,8 @@ export interface LevelStats {
   greedy: number;
   /** Win rate of tapping boxes at random. */
   random?: number;
+  /** Win rate of a player who plans a few taps ahead with the visible boxes only. */
+  planner?: number;
   /** DFS nodes the solver needed to find a solution. */
   nodes: number;
   /** Decisions on the solution path where a wrong box leads into a dead end. */
@@ -75,6 +77,13 @@ export interface LevelDef {
   /** Fenced parts of the frame; everything else is open (no fences = ants enter from all sides). */
   fences?: Fence[];
   shape?: PieceShape;
+  /** Queue rows the player can see (deeper boxes appear as the columns move up). Default 4. */
+  visibleRows?: number;
+  /**
+   * What the player learns about the hidden rest of a column: 'count' shows "+3", 'mystery' only
+   * a "?" when something is still hidden there.
+   */
+  queueHint?: 'count' | 'mystery';
   boxes: BoxDef[];
   /** Queue columns: box ids, index 0 = front (closest to the slots). */
   columns: number[][];

@@ -9,6 +9,8 @@ export const CUBE_H = 0.62;
 const FLOOR_Y = 0.06;
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const WHITE = new THREE.Color(1, 1, 1);
+/** Deep blue that night mode mixes into surfaces. */
+export const NIGHT_SHADE = new THREE.Color('#0d1022');
 
 export function roundedRectShape(x: number, y: number, w: number, h: number, r: number): THREE.Shape {
   const s = new THREE.Shape();
@@ -67,6 +69,7 @@ export class BoardView {
   private readonly v = new THREE.Vector3();
   private readonly sc = new THREE.Vector3();
   private readonly frameMat: THREE.MeshStandardMaterial;
+  private readonly frameColor: THREE.Color;
   private readonly floorMat: THREE.MeshStandardMaterial;
 
   private readonly fenceDefs: Fence[];
@@ -117,6 +120,7 @@ export class BoardView {
     cells.forEach((cell, k) => this.cubes.setColorAt(k, this.colors[this.cellColor[cell]]));
     if (this.cubes.instanceColor) this.cubes.instanceColor.needsUpdate = true;
     this.group.add(this.cubes);
+    this.frameColor = new THREE.Color(frameColor);
     this.frameMat = new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.62, metalness: 0 });
     this.floorMat = new THREE.MeshStandardMaterial({ color: '#fbf1dc', roughness: 0.9, metalness: 0 });
     for (let i = 0; i < n; i++) this.present[i] = sim.cellColor(i) >= 0 && !sim.eaten[i] ? 1 : 0;
@@ -133,6 +137,13 @@ export class BoardView {
 
   get layout(): Layout {
     return this.layoutRef;
+  }
+
+  /** Night mode: the frame and the empty tray darken; the pieces keep their colors. */
+  setNight(on: boolean): void {
+    this.frameMat.color.copy(this.frameColor);
+    if (on) this.frameMat.color.lerp(NIGHT_SHADE, 0.55);
+    this.floorMat.color.set(on ? '#7a7f99' : '#fbf1dc');
   }
 
   /**

@@ -35,6 +35,8 @@ export class NestView {
   private meshes: THREE.Mesh[] = [];
   private pulse = 0;
   private scale = 1;
+  /** Window panes: pale sky reflections by day, warm lamplight at night. */
+  private panes: THREE.MeshStandardMaterial[] = [];
 
   constructor(roofColor = '#e8674a') {
     const add = (
@@ -111,16 +113,14 @@ export class NestView {
     const wy = top + GABLE_H * 0.36;
     add(new THREE.CircleGeometry(0.12, 20), '#ffffff', 0, wy, front + 0.004, { shadow: false });
     const glass = add(new THREE.CircleGeometry(0.09, 20), '#9fd8ff', 0, wy, front + 0.008, { shadow: false, rough: 0.2 });
-    (glass.material as THREE.MeshStandardMaterial).emissive.set('#bfe8ff');
-    (glass.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.3;
+    this.panes.push(glass.material as THREE.MeshStandardMaterial);
     add(new THREE.PlaneGeometry(0.18, 0.02), '#ffffff', 0, wy, front + 0.012, { shadow: false });
     add(new THREE.PlaneGeometry(0.02, 0.18), '#ffffff', 0, wy, front + 0.012, { shadow: false });
     // Little square windows either side of the door.
     for (const x of [-0.37, 0.37]) {
       add(new THREE.PlaneGeometry(0.2, 0.2), '#ffffff', x, BASE_H + 0.47, front + 0.004, { shadow: false });
       const g2 = add(new THREE.PlaneGeometry(0.15, 0.15), '#9fd8ff', x, BASE_H + 0.47, front + 0.008, { shadow: false, rough: 0.2 });
-      (g2.material as THREE.MeshStandardMaterial).emissive.set('#bfe8ff');
-      (g2.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.3;
+      this.panes.push(g2.material as THREE.MeshStandardMaterial);
     }
     // Doorstep and two bushes at the front corners.
     add(new RoundedBoxGeometry(0.46, 0.05, 0.2, 2, 0.02), '#cfc5b6', 0, 0.025, front + 0.1, { rough: 0.9 });
@@ -128,10 +128,19 @@ export class NestView {
     add(new THREE.IcosahedronGeometry(0.15, 1), '#79c94f', WALL_W / 2 + 0.08, 0.12, front - 0.02, { rough: 0.85 });
 
     this.group.add(this.body);
+    this.setNight(false);
+  }
+
+  setNight(on: boolean): void {
+    for (const m of this.panes) {
+      m.color.set(on ? '#ffd27a' : '#9fd8ff');
+      m.emissive.set(on ? '#ffb347' : '#bfe8ff');
+      m.emissiveIntensity = on ? 1.1 : 0.3;
+    }
   }
 
   setLayout(l: Layout): void {
-    this.scale = l.mode === 'portrait' ? 0.8 : 0.95;
+    this.scale = l.mode === 'portrait' ? 0.72 : 0.9;
     this.group.position.set(l.nest.x, 0, l.nest.z);
     this.group.scale.setScalar(this.scale);
   }

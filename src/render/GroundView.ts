@@ -15,6 +15,8 @@ export class GroundView {
   private dapples: THREE.Mesh[] = [];
   private dappleMat: THREE.MeshBasicMaterial;
   private center = new THREE.Vector2();
+  private night = false;
+  private dappleBase = 0.16;
 
   constructor() {
     this.mat = new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, envMapIntensity: 0.25 });
@@ -51,8 +53,20 @@ export class GroundView {
     }
     this.mat.map = tex;
     this.mat.needsUpdate = true;
-    const night = theme.ground.kind === 'night';
-    this.dappleMat.opacity = night ? 0.06 : theme.ground.kind === 'snow' ? 0.1 : 0.16;
+    const starry = theme.ground.kind === 'night';
+    this.dappleBase = starry ? 0.06 : theme.ground.kind === 'snow' ? 0.1 : 0.16;
+    this.applyNight();
+  }
+
+  /** Night mode: the painted ground in moonlight, no sun dapples. */
+  setNight(on: boolean): void {
+    this.night = on;
+    this.applyNight();
+  }
+
+  private applyNight(): void {
+    this.mat.color.set(this.night ? '#4b5572' : '#ffffff');
+    this.dappleMat.opacity = this.night ? 0 : this.dappleBase;
   }
 
   setLayout(l: Layout): void {

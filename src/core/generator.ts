@@ -1,6 +1,6 @@
 import { Sim } from './sim';
 import { Rng } from './rng';
-import { criticalDecisions, estimateDifficulty, phaseDifficulty, solve, type Difficulty } from './solver';
+import { criticalDecisions, estimateDifficulty, phaseDifficulty, plannerRate, solve, type Difficulty } from './solver';
 import type { BoxDef, Fence, LevelDef, PictureDef, Tier } from './types';
 
 export interface GenParams {
@@ -18,6 +18,8 @@ export interface GenParams {
   frozen: number;
   /** Hard cap for box sizes. */
   maxBox?: number;
+  /** Queue rows the player can see (default 4). */
+  visibleRows?: number;
 }
 
 interface SeqBox {
@@ -26,7 +28,7 @@ interface SeqBox {
 }
 
 function emptyLevel(picture: PictureDef, p: GenParams): LevelDef {
-  return { n: 0, world: 0, tier: 'normal', picture, slots: p.slots, fences: p.fences, boxes: [], columns: [] };
+  return { n: 0, world: 0, tier: 'normal', picture, slots: p.slots, fences: p.fences, visibleRows: p.visibleRows, boxes: [], columns: [] };
 }
 
 /**
@@ -202,6 +204,11 @@ export interface GenTarget {
    * thinking isn't all at the first taps.
    */
   phaseRandom?: number;
+  /**
+   * Accepted range for the win rate of a player who plans a few taps ahead but only sees the
+   * visible queue rows: fair levels are winnable by thinking, hard ones need more than that.
+   */
+  planner?: [number, number];
 }
 
 /** Simulated players on a level, plus the later-phase check when the target asks for it. */
@@ -210,6 +217,8 @@ export function measure(level: LevelDef, target: GenTarget, runs: number, seed: 
   if (target.phaseRandom !== undefined && level.solution?.length) {
     d.phase = phaseDifficulty(level, [1 / 3], Math.max(40, Math.round(runs * 0.6)), seed + 1).random[0];
   }
+  // The planner is the slowest player: only ask it once everything else is about right.
+  if (target.planner && objective(d, target) < 0.25) d.planner = plannerRate(level, 4, seed + 2);
   return d;
 }
 
@@ -224,7 +233,8 @@ function tooEasy(d: Difficulty, t: GenTarget): boolean {
     d.casual > t.casual[1] ||
     d.random > (t.random?.[1] ?? 1) ||
     d.greedy > (t.greedy?.[1] ?? 1) ||
-    (t.phaseRandom !== undefined && (d.phase ?? 0) > t.phaseRandom)
+    (t.phaseRandom !== undefined && (d.phase ?? 0) > t.phaseRandom) ||
+    (t.planner !== undefined && (d.planner ?? 0) > t.planner[1])
   );
 }
 
@@ -300,6 +310,7 @@ export function generateLevel(
 export function objective(d: Difficulty, t: GenTarget): number {
   let v = bandOf(d.casual, t.casual) + bandOf(d.random, t.random) * 1.5 + bandOf(d.greedy, t.greedy) * 0.5;
   if (t.phaseRandom !== undefined) v += d.phase === undefined ? 0.15 : Math.max(0, d.phase - t.phaseRandom) * 0.6;
+  if (t.planner) v += d.planner === undefined ? 0.1 : bandOf(d.planner, t.planner);
   return v;
 }
 
@@ -437,14 +448,14 @@ export function tuneLevel(
  * a dead end.
  */
 export function tierTarget(tier: Tier, n: number): GenTarget {
-  if (n === 1) return { casual: [0.3, 0.65], random: [0, 0.1], greedy: [0.5, 1], minCritical: 2, maxBox: 45 };
-  if (n <= 4) return { casual: [0.15, 0.45], random: [0, 0.04], greedy: [0.4, 1], minCritical: 2, maxBox: 50 };
-  if (tier === 'normal' && n <= 10) return { casual: [0.08, 0.3], random: [0, 0.02], greedy: [0.3, 0.95], minCritical: 3, maxBox: 60, phaseRandom: 0.8 };
-  if (tier === 'normal') return { casual: [0.04, 0.22], random: [0, 0.01], greedy: [0.2, 0.9], minCritical: 3, maxBox: 70, phaseRandom: 0.6 };
-  if (tier === 'hard' && n < 10) return { casual: [0.02, 0.12], random: [0, 0.005], greedy: [0.1, 0.7], minCritical: 4, maxBox: 70, phaseRandom: 0.5 };
-  if (tier === 'hard') return { casual: [0.005, 0.08], random: [0, 0.003], greedy: [0.05, 0.5], minCritical: 5, maxBox: 75, phaseRandom: 0.4 };
-  if (n < 20) return { casual: [0, 0.04], random: [0, 0.002], greedy: [0, 0.3], minCritical: 5, maxBox: 80, phaseRandom: 0.35 };
-  return { casual: [0, 0.02], random: [0, 0.002], greedy: [0, 0.15], minCritical: 6, maxBox: 80, phaseRandom: 0.25 };
+  if (n === 1) return { casual: [0.3, 0.65], random: [0, 0.1], greedy: [0.5, 1], planner: [0.75, 1], minCritical: 2, maxBox: 45 };
+  if (n <= 4) return { casual: [0.15, 0.45], random: [0, 0.04], greedy: [0.4, 1], planner: [0.75, 1], minCritical: 2, maxBox: 50 };
+  if (tier === 'normal' && n <= 10) return { casual: [0.08, 0.3], random: [0, 0.02], greedy: [0.3, 0.95], planner: [0.6, 1], minCritical: 3, maxBox: 60, phaseRandom: 0.8 };
+  if (tier === 'normal') return { casual: [0.04, 0.22], random: [0, 0.01], greedy: [0.2, 0.9], planner: [0.5, 1], minCritical: 3, maxBox: 70, phaseRandom: 0.6 };
+  if (tier === 'hard' && n < 10) return { casual: [0.02, 0.12], random: [0, 0.005], greedy: [0.1, 0.7], planner: [0.25, 1], minCritical: 4, maxBox: 70, phaseRandom: 0.5 };
+  if (tier === 'hard') return { casual: [0.005, 0.08], random: [0, 0.003], greedy: [0.05, 0.5], planner: [0.25, 0.9], minCritical: 5, maxBox: 75, phaseRandom: 0.4 };
+  if (n < 20) return { casual: [0, 0.04], random: [0, 0.002], greedy: [0, 0.3], planner: [0.1, 0.8], minCritical: 5, maxBox: 80, phaseRandom: 0.35 };
+  return { casual: [0, 0.02], random: [0, 0.002], greedy: [0, 0.15], planner: [0.05, 0.6], minCritical: 6, maxBox: 80, phaseRandom: 0.25 };
 }
 
 /**

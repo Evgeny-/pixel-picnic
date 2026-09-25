@@ -55,7 +55,24 @@ export class App {
   private tutorial = 0;
   private loadingEl: HTMLElement | null = null;
 
+  private darkQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
+
+  /** Night mode on? ("auto" follows the system's dark theme) */
+  private isNight(): boolean {
+    const mode = this.save.settings.night ?? 'auto';
+    return mode === 'on' || (mode === 'auto' && !!this.darkQuery?.matches);
+  }
+
+  private applyNight(): void {
+    const on = this.isNight();
+    document.documentElement.classList.toggle('night', on);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#171a2b' : '#86c45b');
+    this.view?.setNight(on);
+  }
+
   async init(): Promise<void> {
+    this.applyNight();
+    this.darkQuery?.addEventListener('change', () => this.applyNight());
     if (this.save.settings.lang) setLang(this.save.settings.lang);
     this.loadingEl = h(
       'div',
@@ -236,6 +253,7 @@ export class App {
         onPick: () => this.game?.onPick(),
         onDeliver: () => this.game?.onDeliver(),
       });
+      this.view.setNight(this.isNight());
       this.view.resize(window.innerWidth, window.innerHeight);
     }
     return this.view;
@@ -275,7 +293,7 @@ export class App {
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       this.hud.setDebug(
         st
-          ? `random ${st.random === undefined ? '?' : pct(st.random)} · casual ${pct(st.casual)} · greedy ${pct(st.greedy)} · 🧠 ${st.critical ?? '?'}/${st.decisions ?? '?'} · ${st.pixels} cubes · ${level.boxes.length} boxes`
+          ? `random ${st.random === undefined ? '?' : pct(st.random)} · casual ${pct(st.casual)} · greedy ${pct(st.greedy)} · planner ${st.planner === undefined ? '?' : pct(st.planner)} · 🧠${st.critical ?? '?'}/${st.decisions ?? '?'} · ${level.boxes.length} boxes`
           : `${level.boxes.length} boxes · ${level.picture.palette.length} col`,
       );
     }
@@ -726,6 +744,20 @@ export class App {
       h('span', { html: `${emoji('lady-beetle', 24)} ${t('debug')}<br><small style="font-size:12px;opacity:.7">${t('debugHint')}</small>` }),
       dbgSeg,
     );
+    const nightSeg = h('div', { class: 'seg' });
+    (['auto', 'on', 'off'] as const).forEach((v) => {
+      const b = h('button', { class: (this.save.settings.night ?? 'auto') === v ? 'on' : '', text: t(v === 'auto' ? 'auto' : v) });
+      b.addEventListener('click', () => {
+        audio.play('button');
+        this.save.settings.night = v;
+        writeSave(this.save);
+        this.applyNight();
+        closeAllDialogs();
+        this.openSettings();
+      });
+      nightSeg.append(b);
+    });
+    const nightRow = h('div', { class: 'setting-row' }, h('span', { html: `${emoji('crescent-moon', 24)} ${t('nightMode')}` }), nightSeg);
     const credits = button(t('credits'), 'white small', () => this.openCredits());
     const reset = button(t('resetProgress'), 'red small', () => {
       openDialog({
@@ -751,7 +783,7 @@ export class App {
     openDialog({
       title: t('settings'),
       head: 'purple',
-      body: [this.volumeRow('music'), this.volumeRow('sfx'), langRow, debugRow, h('div', { class: 'actions' }, credits, reset)],
+      body: [this.volumeRow('music'), this.volumeRow('sfx'), langRow, nightRow, debugRow, h('div', { class: 'actions' }, credits, reset)],
       onClose: () => undefined,
     });
   }

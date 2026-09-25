@@ -35,6 +35,7 @@ export interface LevelPlan {
   colors: number;
   background: boolean;
   fences: FenceSpec[];
+  queueHint: 'count' | 'mystery';
   params: GenParams;
 }
 
@@ -83,7 +84,9 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
     gridSize += 2;
     colors = Math.min(9, colors + 1);
   }
-  gridSize = Math.min(40, gridSize);
+  // Big enough for detail, small enough that every piece stays easy to see on a phone
+  // (the background frame adds up to four more cells).
+  gridSize = Math.min(30, gridSize);
   const background = true;
 
   // Roughly how many boxes the level should have.
@@ -117,7 +120,14 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
   // Fewer queue columns leave fewer ways out of a bad spot: a difficulty lever of its own.
   const columns = n <= 3 ? 4 : sh ? rng.pick([3, 3, 4]) : hard ? rng.pick([3, 3, 4]) : rng.pick([3, 4, 4, 5]);
 
+  // Only the first rows of the queue are visible; deeper boxes appear as columns move up.
+  // Seeing less means planning with less information: hard levels often show just three rows,
+  // and sometimes only a "?" tells that a column hides more boxes.
+  const visibleRows = n <= 4 ? 5 : sh ? (rng.chance(0.7) ? 3 : 4) : hard ? (rng.chance(0.5) ? 3 : 4) : n < 40 && rng.chance(0.2) ? 5 : 4;
+  const queueHint: 'count' | 'mystery' = rng.chance(sh ? 0.7 : hard ? 0.5 : n > 30 ? 0.2 : 0) ? 'mystery' : 'count';
+
   const params: GenParams = {
+    visibleRows,
     columns,
     slots: n <= 2 ? 5 : 4,
     fences: [],
@@ -129,7 +139,7 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
     links: linkOn ? (n === MECHANIC_LEVEL.link ? 2 : rng.int(1, 3)) : 0,
     frozen: frozenOn ? (n === MECHANIC_LEVEL.frozen ? 2 : rng.int(1, 2)) : 0,
   };
-  return { gridSize, colors, background, fences, params };
+  return { gridSize, colors, background, fences, queueHint, params };
 }
 
 /** Piece shape of level n: plain cubes first, then a different look for most pictures. */

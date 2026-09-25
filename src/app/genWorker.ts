@@ -38,6 +38,7 @@ self.onmessage = (e: MessageEvent<Req>) => {
     tier,
     name,
     shape: shapeFor(n),
+    queueHint: plan.queueHint,
     stats: {
       casual: diff.casual,
       greedy: diff.greedy,
