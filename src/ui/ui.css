@@ -212,7 +212,7 @@ button { font-family: var(--font); cursor: pointer; }
 @keyframes pop-in { from { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.04); } }
 
 .dialog {
-  position: relative; width: min(400px, 92vw); max-height: 88vh;
+  position: relative; width: min(400px, calc(100vw - 40px)); max-height: 88vh;
   padding: 58px 22px 24px; border-radius: 30px;
   background: linear-gradient(180deg, var(--cream), var(--cream-2));
   border: 5px solid #fff;
@@ -406,7 +406,7 @@ html.night .loading { background: linear-gradient(180deg, #1d2238, #1a2a24); }
 .reward-line.off { opacity: 0.4; }
 
 /* ------------------------------------------------------------------ shop */
-.dialog.wide { width: min(470px, 95vw); }
+.dialog.wide { width: min(470px, calc(100vw - 40px)); }
 .dialog .shop-coins { margin: 0 0 8px; font-weight: 900; font-size: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #e08e00; }
 .shop-tabs { margin-bottom: 10px; }
 .shop-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; max-height: min(52vh, 460px); overflow-y: auto; padding: 4px 2px 6px; }

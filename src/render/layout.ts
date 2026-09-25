@@ -44,7 +44,9 @@ function rowX(n: number, cx: number, spacing: number): number[] {
 
 function portrait(inp: LayoutInput): Layout {
   // The picture gets the full width (square pictures too); the ant house, the slots and the
-  // visible queue rows are packed tightly below it.
+  // visible queue rows sit below it. Tall phones have height to spare: it goes into air around
+  // the house, a wider gap before the queue and bigger boxes.
+  const tilt = (30 * Math.PI) / 180;
   const maxW = 9.2;
   const maxH = 9.2;
   const cell = Math.min(maxW / inp.w, maxH / inp.h);
@@ -53,18 +55,44 @@ function portrait(inp: LayoutInput): Layout {
   const frame = 0.32;
   const picX0 = -picW / 2;
   const picZ0 = -picH;
-  const nest = { x: 0, z: 1.42 };
-  const slotZ = 3.05;
-  const slotSpacing = inp.slots > 5 ? Math.min(SPACING, 9.4 / inp.slots) : SPACING;
-  const slot = rowX(inp.slots, 0, slotSpacing).map((x) => ({ x, z: slotZ }));
-  const colSpacing = inp.columns > 5 ? 9.4 / inp.columns : SPACING;
+  const minZ = picZ0 - frame - cell * 0.35 - 0.12;
+  const halfW = picW / 2 + frame + cell * 0.35 + 0.08;
+  const rows = inp.rows;
+  const stack = (grow: number) => {
+    const k = 1 + 0.28 * grow;
+    const nestZ = 2.0 + 0.45 * grow;
+    const slotZ = nestZ + 1.82 + 0.4 * grow;
+    const queueZ0 = slotZ + 2.05 * k + 0.3 * grow;
+    const row = ROW * k;
+    return { k, nestZ, slotZ, queueZ0, row, maxZ: queueZ0 + (rows - 0.4) * row + 0.45 };
+  };
+  // Screen height available (world units) when the width decides the zoom.
+  const availH = (halfW * 2 * 1.02) / Math.max(0.3, inp.aspect);
+  const fits = (g: number) => (stack(g).maxZ - minZ) * Math.cos(tilt) + 0.8 * Math.sin(tilt) <= availH;
+  let grow = 0;
+  if (fits(1)) grow = 1;
+  else if (fits(0)) {
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid;
+      else hi = mid;
+    }
+    grow = lo;
+  }
+  const st = stack(grow);
+  const spacing = SPACING * st.k;
+  const box = BOX * st.k;
+  const nest = { x: 0, z: st.nestZ };
+  const slotSpacing = Math.min(spacing, 9.4 / Math.max(5, inp.slots));
+  const slot = rowX(inp.slots, 0, slotSpacing).map((x) => ({ x, z: st.slotZ }));
+  const colSpacing = Math.min(spacing, 9.4 / Math.max(4, inp.columns));
   const queueCol = rowX(inp.columns, 0, colSpacing);
-  const queueZ0 = slotZ + 1.95;
-  const rowsVisible = inp.rows;
-  const maxX = Math.max(picW / 2 + frame + cell * 0.35, (slot.length * slotSpacing) / 2, (inp.columns * colSpacing) / 2) + 0.08;
+  const maxX = Math.max(halfW, (slot.length * slotSpacing) / 2 + 0.08, (inp.columns * colSpacing) / 2 + 0.08);
   return {
     mode: 'portrait',
-    tilt: (30 * Math.PI) / 180,
+    tilt,
     cell,
     picX0,
     picZ0,
@@ -73,14 +101,14 @@ function portrait(inp: LayoutInput): Layout {
     frame,
     nest,
     slot,
-    slotSize: Math.min(BOX, slotSpacing * 0.78),
+    slotSize: Math.min(box, slotSpacing * 0.78),
     queueCol,
-    queueZ0,
-    queueRow: ROW,
-    queueRowsVisible: rowsVisible,
-    boxSize: Math.min(BOX, colSpacing * 0.78, slotSpacing * 0.78),
+    queueZ0: st.queueZ0,
+    queueRow: st.row,
+    queueRowsVisible: rows,
+    boxSize: Math.min(box, colSpacing * 0.78, slotSpacing * 0.78),
     // The bottom edge leaves room for the "+3" hints under the columns.
-    bounds: { minX: -maxX, maxX, minZ: picZ0 - frame - cell * 0.35 - 0.12, maxZ: queueZ0 + (rowsVisible - 0.4) * ROW + 0.45 },
+    bounds: { minX: -maxX, maxX, minZ, maxZ: st.maxZ },
   };
 }
 
