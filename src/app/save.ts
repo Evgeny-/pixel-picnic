@@ -21,6 +21,15 @@ export interface SaveData {
   boosters: Record<BoosterId, number>;
   seen: string[];
   settings: Settings;
+  /** Cosmetics bought with coins and the ones in use. */
+  looks: Looks;
+}
+
+export interface Looks {
+  house: string;
+  hat: string;
+  /** Bought items as "house:mushroom", "hat:crown"… */
+  owned: string[];
 }
 
 const KEY = 'pixel-picnic-save-v1';
@@ -34,6 +43,7 @@ function defaults(): SaveData {
     boosters: { hint: 0, undo: 0, slot: 0, shuffle: 0, grab: 0 },
     seen: [],
     settings: { music: 0.5, sfx: 0.8, lang: null, speed: 1, debug: false },
+    looks: { house: 'cottage', hat: 'none', owned: [] },
   };
 }
 
@@ -48,6 +58,7 @@ export function loadSave(): SaveData {
       ...d,
       boosters: { ...base.boosters, ...(d.boosters ?? {}) },
       settings: { ...base.settings, ...(d.settings ?? {}) },
+      looks: { ...base.looks, ...(d.looks ?? {}) },
       stars: d.stars ?? {},
       seen: d.seen ?? [],
     };

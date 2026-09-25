@@ -390,3 +390,7 @@ html.night .debug-legend { color: #b9b3d6; }
 html.night .mech-art { background: radial-gradient(circle at 50% 40%, #3d4263, #2a2e48); }
 html.night .pic-thumb { background: #23263b; box-shadow: 0 4px 0 #151827, 0 6px 14px rgba(0, 0, 0, 0.3); }
 html.night .loading { background: linear-gradient(180deg, #1d2238, #1a2a24); }
+.reward { margin: 2px auto 8px; width: min(280px, 100%); font-weight: 800; font-size: 15px; }
+.reward-line { display: flex; justify-content: space-between; padding: 3px 4px; border-bottom: 1px dashed rgba(122, 96, 64, 0.25); }
+.reward-line b { color: #e08e00; }
+.reward-line.off { opacity: 0.4; }

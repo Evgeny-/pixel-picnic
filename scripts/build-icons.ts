@@ -10,6 +10,9 @@ const ICONS = [
   'muted-speaker', 'musical-note', 'gear', 'house', 'world-map', 'framed-picture', 'package', 'skull',
   'party-popper', 'money-bag', 'check-mark-button', 'cross-mark', 'artist-palette', 'four-leaf-clover',
   'shooting-star', 'lady-beetle', 'sun', 'key', 'hourglass-done', 'construction', 'door',
+  // shop
+  'shopping-bags', 'billed-cap', 'top-hat', 'ribbon', 'sunglasses', 'santa-claus', 'hut', 'wood', 'ice',
+  'jack-o-lantern',
   // map decorations
   'mushroom', 'evergreen-tree', 'deciduous-tree', 'tulip', 'sunflower', 'blossom', 'spiral-shell', 'tropical-fish',
   'lollipop', 'candy', 'doughnut', 'crescent-moon', 'ringed-planet', 'rocket', 'snowman', 'crystal-ball', 'castle',

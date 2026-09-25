@@ -34,6 +34,8 @@ export class Game {
   private acc = 0;
   speed = 1;
   paused = false;
+  /** Seconds played (not paused), for the speed bonus. */
+  playTime = 0;
   private history: Sim[] = [];
   boostersUsed = 0;
   taps = 0;
@@ -196,6 +198,7 @@ export class Game {
 
   update(dt: number, time: number): void {
     if (!this.paused && this.sim.status === 'playing') {
+      this.playTime += dt;
       this.acc += dt * this.speed;
       let guard = 0;
       while (this.acc >= ROUND && guard++ < 8) {

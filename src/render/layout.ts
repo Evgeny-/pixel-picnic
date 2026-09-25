@@ -79,7 +79,8 @@ function portrait(inp: LayoutInput): Layout {
     queueRow: ROW,
     queueRowsVisible: rowsVisible,
     boxSize: Math.min(BOX, colSpacing * 0.78, slotSpacing * 0.78),
-    bounds: { minX: -maxX, maxX, minZ: picZ0 - frame - cell * 0.35 - 0.12, maxZ: queueZ0 + (rowsVisible - 1) * ROW + 0.75 },
+    // The bottom edge leaves room for the "+3" hints under the columns.
+    bounds: { minX: -maxX, maxX, minZ: picZ0 - frame - cell * 0.35 - 0.12, maxZ: queueZ0 + (rowsVisible - 0.4) * ROW + 0.45 },
   };
 }
 
@@ -107,7 +108,8 @@ function landscape(inp: LayoutInput): Layout {
   // The nest sits under the middle of the picture, as in portrait: ants fetch the pieces closest
   // to home first, so that's where the rules measure distances from.
   const nest = { x: boardCx, z: bottom + 1.45 };
-  const queueTop = queueZ0 - (rowsVisible - 1) * ROW - 0.8;
+  // Room above the top row for the "+3" hints.
+  const queueTop = queueZ0 - (rowsVisible + 0.15) * ROW - 0.4;
   const minX = Math.min(picX0 - frame, rightCx - (slot.length * slotSpacing) / 2) - 0.3;
   const maxX = Math.max(rightCx + (slot.length * slotSpacing) / 2, rightCx + (inp.columns * colSpacing) / 2) + 0.3;
   return {

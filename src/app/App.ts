@@ -22,6 +22,8 @@ import {
   BOOSTER_UNLOCK,
   boostersUnlockedAt,
   coinsFor,
+  parTime,
+  type Reward,
   mechanicsIntroducedAt,
   type BoosterId,
   type MechanicId,
@@ -527,10 +529,12 @@ export class App {
   private onWin(g: Game): void {
     const n = g.level.n;
     const stars = g.stars(this.rescued);
-    const coins = coinsFor(g.level.tier, stars);
-    const firstTime = !(this.save.stars[n] > 0);
-    this.save.stars[n] = Math.max(this.save.stars[n] ?? 0, stars);
-    this.save.coins += coins;
+    const prevStars = this.save.stars[n] ?? 0;
+    const fast = g.playTime <= parTime(g.level);
+    const reward = coinsFor(g.level.tier, stars, fast, prevStars);
+    const firstTime = prevStars === 0;
+    this.save.stars[n] = Math.max(prevStars, stars);
+    this.save.coins += reward.total;
     if (n >= this.save.level) this.save.level = n + 1;
     writeSave(this.save);
     const dur = g.celebrate();
@@ -541,18 +545,30 @@ export class App {
       this.tutorial = 0;
       this.markSeen('tutorial');
     }
-    setTimeout(() => this.showWinDialog(g.level, stars, coins, firstTime), Math.max(900, dur * 1000 + 200));
+    const time = g.playTime;
+    setTimeout(() => this.showWinDialog(g.level, stars, reward, time, firstTime), Math.max(900, dur * 1000 + 200));
   }
 
-  private showWinDialog(level: LevelDef, stars: number, coins: number, firstTime: boolean): void {
-    const pic = pictureCanvas(level.picture, 150, { rounded: true, bg: '#fffaf0' });
+  private showWinDialog(level: LevelDef, stars: number, reward: Reward, time: number, firstTime: boolean): void {
+    const pic = pictureCanvas(level.picture, 130, { rounded: true, bg: '#fffaf0' });
     pic.classList.add('pic-thumb');
     const starsEl = h('div', { class: 'stars', html: [1, 2, 3].map(() => emoji('star', 64, 'star')).join('') });
     const name = loc(level.name);
-    const coinEl = h('div', { class: 'coins-gain', html: `${emoji('coin', 30)} +${coins}` });
+    const clock = `${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, '0')}`;
+    // What the coins were for: the level itself, the stars, and finishing quickly.
+    const line = (label: string, v: number) =>
+      h('div', { class: 'reward-line' + (v ? '' : ' off'), html: `<span>${label}</span><b>+${v}</b>` });
+    const lines = h(
+      'div',
+      { class: 'reward' },
+      line(firstTime ? t(level.tier === 'normal' ? 'rewardLevel' : level.tier === 'hard' ? 'rewardHard' : 'rewardSuperhard') : t('rewardReplay'), reward.base),
+      line(t('rewardStars'), reward.stars),
+      line(`${t('rewardFast')} · ${clock}`, reward.speed),
+    );
+    const coinEl = h('div', { class: 'coins-gain', html: `${emoji('coin', 30)} +${reward.total}` });
     const body: (HTMLElement | string)[] = [starsEl, pic];
     if (name) body.push(h('p', { html: `<b>${name}</b>`, style: 'margin:0 0 6px' }));
-    body.push(coinEl);
+    body.push(lines, coinEl);
     if (firstTime) body.push(h('p', { class: 'subtle', text: t('addedAlbum') }));
     openDialog({
       title: t(stars === 3 ? 'win3' : stars === 2 ? 'win2' : 'win1'),

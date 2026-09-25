@@ -1,6 +1,6 @@
 import { Rng } from './rng';
 import type { GenParams } from './generator';
-import type { Fence, PieceShape, Side, Tier } from './types';
+import type { Fence, LevelDef, PieceShape, Side, Tier } from './types';
 
 export type BoosterId = 'hint' | 'undo' | 'slot' | 'shuffle' | 'grab';
 export const BOOSTERS: BoosterId[] = ['hint', 'undo', 'slot', 'shuffle', 'grab'];
@@ -19,9 +19,37 @@ export function worldOf(n: number): number {
   return Math.floor((n - 1) / LEVELS_PER_WORLD);
 }
 
-export function coinsFor(tier: Tier, stars: number): number {
-  const base = tier === 'superhard' ? 35 : tier === 'hard' ? 20 : 10;
-  return base + stars * 3;
+export interface Reward {
+  /** For finishing the level (by tier). */
+  base: number;
+  /** For the stars (new stars only on a replay). */
+  stars: number;
+  /** For finishing within the par time (first clear only). */
+  speed: number;
+  total: number;
+}
+
+/** Seconds a level may take for the "quick" bonus: letting all the ants out at 1x plus some thinking. */
+export function parTime(level: LevelDef): number {
+  const ants = level.boxes.reduce((a, b) => a + b.count, 0);
+  return Math.round(15 + (ants * 0.16) / level.slots + level.boxes.length * 3.5);
+}
+
+/**
+ * Coins for a win. Harder tiers pay more, stars and speed add a bonus. Replays pay a third of
+ * the base plus any newly earned stars, so old levels can't be farmed for cosmetics.
+ */
+export function coinsFor(tier: Tier, stars: number, fast: boolean, prevStars = 0): Reward {
+  const base = tier === 'superhard' ? 50 : tier === 'hard' ? 25 : 10;
+  const first = prevStars === 0;
+  const r: Reward = {
+    base: first ? base : Math.round(base / 3),
+    stars: Math.max(0, stars - prevStars) * 5,
+    speed: first && fast ? (tier === 'superhard' ? 25 : tier === 'hard' ? 15 : 10) : 0,
+    total: 0,
+  };
+  r.total = r.base + r.stars + r.speed;
+  return r;
 }
 
 /** A fenced side of the frame, optionally with a gate (an opening `gate` cells wide). */
