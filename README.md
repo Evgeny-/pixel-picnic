@@ -71,10 +71,10 @@ Every 5th level is **hard**, every 10th is **super hard**.
 - **Coins** — 10 / 25 / 50 for a normal / hard / super hard level, +5 per star and a "Quick!"
   bonus for beating the level's par time (replays pay a third). Spend them in the **shop** on
   boosters, seven looks for the ant house (cottage, mushroom, log cabin, igloo, gingerbread,
-  pumpkin, castle tower) and accessories the whole colony wears (party hats, caps, bows,
+  pumpkin, castle tower), box styles (classic, wooden crate, picnic basket and metal case)
+  and accessories the whole colony wears (party hats, caps, bows,
   flowers, sunglasses, top hats, Santa hats, crowns) — with 3D previews.
 - **Fast by default** — ants are quick, and 2× / 3× speed is free.
-- **Desktop extras** — hover a box to see which cubes its ants could reach right now.
 - **Always up to date** — the game notices a new deployment and reloads itself on the map.
 - **Night mode** — dark grass, moonlight and a dark interface (the pictures keep their colors,
   the ant house lights its windows); automatic with the system's dark theme or on/off in the
@@ -157,7 +157,7 @@ level's difficulty, the 🐞 button opens a list of all levels with their pictur
 plays the level) and *Skip level*.
 
 Other URL flags: `?level=25` jumps to a level, `?boosters=5`, `?coins=999`, `?progress=14`,
-`?demo` (the colony plays by itself), `?reset`.
+`?demo` (the colony plays by itself), `?looks=mushroom,party,basket` (house, hat, boxes), `?reset`.
 
 Pushing to `main` runs the tests, builds the game and publishes it to
 `evgeny.io/games/pixel-picnic/` (GitHub Actions; needs a `DEPLOY_TOKEN` secret with write access

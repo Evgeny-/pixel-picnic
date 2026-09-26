@@ -79,6 +79,7 @@ const STRINGS = {
   shop: { ru: 'Магазин', en: 'Shop' },
   shopHouses: { ru: 'Домики', en: 'Houses' },
   shopAnts: { ru: 'Муравьи', en: 'Ants' },
+  shopBoxes: { ru: 'Коробки', en: 'Boxes' },
   shopBoosters: { ru: 'Бустеры', en: 'Boosters' },
   wear: { ru: 'Выбрать', en: 'Use' },
   worn: { ru: 'Выбрано', en: 'In use' },
@@ -123,10 +124,11 @@ const STRINGS = {
   endless: { ru: 'Бесконечный режим', en: 'Endless mode' },
   loading: { ru: 'Муравьи готовятся…', en: 'Ants are getting ready…' },
   progress: { ru: 'Съедено', en: 'Eaten' },
-  licenseText: {
-    ru: 'Картинки уровней созданы из эмодзи: Microsoft Fluent Emoji (MIT), Twemoji (© Twitter, Inc. и участники, CC BY 4.0, https://creativecommons.org/licenses/by/4.0/) и Google Noto Emoji (Apache 2.0). Шрифт Nunito (SIL OFL 1.1). 3D — three.js (MIT). Музыка и звуки синтезируются в браузере.',
-    en: 'Level pictures are made from emoji: Microsoft Fluent Emoji (MIT), Twemoji (© Twitter, Inc. and contributors, CC BY 4.0, https://creativecommons.org/licenses/by/4.0/) and Google Noto Emoji (Apache 2.0). Font: Nunito (SIL OFL 1.1). 3D: three.js (MIT). Music and sounds are synthesized in the browser.',
-  },
+  creditPictures: { ru: 'Эмодзи для картинок уровней', en: 'Emoji for level pictures' },
+  creditTools: { ru: 'Шрифт и 3D', en: 'Font & 3D' },
+  creditTwemoji: { ru: '© Twitter, Inc. и участники', en: '© Twitter, Inc. and contributors' },
+  creditAudio: { ru: 'Музыка и звуки', en: 'Music & sounds' },
+  creditAudioNote: { ru: 'Синтезируются в браузере.', en: 'Synthesized in the browser.' },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type StrKey = keyof typeof STRINGS;

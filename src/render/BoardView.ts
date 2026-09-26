@@ -8,7 +8,6 @@ import { cellCenter, type Layout } from './layout';
 export const CUBE_H = 0.62;
 const FLOOR_Y = 0.06;
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
-const WHITE = new THREE.Color(1, 1, 1);
 /** Deep blue that night mode mixes into surfaces. */
 export const NIGHT_SHADE = new THREE.Color('#0d1022');
 
@@ -63,7 +62,6 @@ export class BoardView {
   private floorMesh: THREE.Mesh | null = null;
   private anims: CubeAnim[] = [];
   private clock = 0;
-  private hl = new Set<number>();
   private readonly m4 = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly v = new THREE.Vector3();
@@ -340,32 +338,10 @@ export class BoardView {
     return this.colors[this.cellColor[cell]];
   }
 
-  /** Lift and brighten the given cubes (reachable cubes of a hovered box color). */
-  highlight(cells: number[] | null): void {
-    const next = new Set(cells ?? []);
-    const tmp = new THREE.Color();
-    for (const c of this.hl) {
-      if (next.has(c)) continue;
-      const inst = this.instOf[c];
-      this.cubes.setColorAt(inst, this.colors[this.cellColor[c]]);
-      if (this.present[c]) this.writeMatrix(c, 1, 0);
-    }
-    for (const c of next) {
-      if (this.hl.has(c) || !this.present[c]) continue;
-      const inst = this.instOf[c];
-      this.cubes.setColorAt(inst, tmp.copy(this.colors[this.cellColor[c]]).lerp(WHITE, 0.45));
-      this.writeMatrix(c, 1.08, this.layoutRef.cell * 0.3);
-    }
-    this.hl = next;
-    if (this.cubes.instanceColor) this.cubes.instanceColor.needsUpdate = true;
-    this.cubes.instanceMatrix.needsUpdate = true;
-  }
-
   /** A cube was picked up by an ant. */
   remove(cell: number): void {
     if (!this.present[cell]) return;
     this.present[cell] = 0;
-    if (this.hl.delete(cell)) this.cubes.setColorAt(this.instOf[cell], this.colors[this.cellColor[cell]]);
     this.anims = this.anims.filter((a) => a.cell !== cell);
     this.writeMatrix(cell, 0, 0);
     this.cubes.instanceMatrix.needsUpdate = true;

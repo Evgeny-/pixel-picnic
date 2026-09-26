@@ -2,6 +2,8 @@ import { EMOJI, type EmojiName } from './emoji.generated';
 
 /** Chunky line icons drawn with currentColor (for white glyphs on colored buttons). */
 const LINE: Record<string, string> = {
+  music: '<path d="M9 18V6l10-2v12M9 10l10-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5" fill="currentColor"/><ellipse cx="16" cy="16" rx="3" ry="2.5" fill="currentColor"/>',
+  sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a6 6 0 010 8M20 5a10 10 0 010 14"/>',
   pause: '<path d="M9 6v12M15 6v12"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
   ff: '<path d="M4 6.5v11l7.5-5.5zM12.5 6.5v11l7.5-5.5z" fill="currentColor"/>',

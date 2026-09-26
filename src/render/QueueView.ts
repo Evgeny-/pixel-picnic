@@ -4,8 +4,8 @@ import { Where, type Sim } from '../core/sim';
 import { queuePos, type Layout } from './layout';
 import { LabelTexture, mysteryTexture } from './textures';
 import { roundedRectShape } from './BoardView';
+import { BOX_H, BOX_LABEL_Z, BoxStyle } from './boxStyle';
 
-const BOX_H = 0.62;
 const MYSTERY = new THREE.Color('#9b94b3');
 const DIM = new THREE.Color('#8f8a7c');
 const PULSE_RED = new THREE.Color('#ff5a4a');
@@ -51,7 +51,7 @@ export class QueueView {
   readonly group = new THREE.Group();
   private boxes = new Map<number, BoxVis>();
   private links: LinkVis[] = [];
-  private readonly boxGeo = new RoundedBoxGeometry(1, BOX_H, 1, 3, 0.2);
+  private readonly boxStyle: BoxStyle;
   private readonly iceGeo = new RoundedBoxGeometry(1.12, BOX_H * 1.25, 1.12, 2, 0.16);
   private readonly labelGeo = new THREE.PlaneGeometry(1, 1);
   private readonly iceMat = new THREE.MeshStandardMaterial({
@@ -88,7 +88,8 @@ export class QueueView {
   /** Show how many boxes are hidden in a column ("+3"), or only that there are some ("?"). */
   private hint: 'count' | 'mystery' = 'count';
 
-  constructor(sim: Sim, palette: string[], hint: 'count' | 'mystery' = 'count') {
+  constructor(sim: Sim, palette: string[], hint: 'count' | 'mystery' = 'count', skin = 'classic') {
+    this.boxStyle = new BoxStyle(skin);
     this.hint = hint;
     this.sim = sim;
     this.colors = palette.map((c) => new THREE.Color(c));
@@ -126,11 +127,8 @@ export class QueueView {
   private makeBox(id: number): BoxVis {
     const group = new THREE.Group();
     const color = this.colors[this.sim.boxColor(id)];
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.38, metalness: 0, envMapIntensity: 1 });
-    const body = new THREE.Mesh(this.boxGeo, mat);
-    body.castShadow = true;
-    body.receiveShadow = true;
-    body.position.y = BOX_H / 2;
+    const body = this.boxStyle.createBody(color);
+    const mat = body.material;
     body.userData.boxId = id;
     group.add(body);
     const label = new LabelTexture(128);
@@ -443,7 +441,7 @@ export class QueueView {
       b.group.visible = f > 0.05 || b.pop > 0;
       if (!b.group.visible) continue;
       b.body.position.x = offX;
-      b.labelMesh.position.set(offX, BOX_H + 0.012, 0);
+      b.labelMesh.position.set(offX, BOX_H + 0.012, BOX_LABEL_Z);
       b.labelMesh.visible = f > 0.75;
       if (!b.hiddenShown) b.mat.color.copy(b.color).lerp(DIM, (1 - f) * 0.9);
       if (b.flip > 0) {
@@ -509,7 +507,7 @@ export class QueueView {
       b.label.dispose();
       (b.labelMesh.material as THREE.Material).dispose();
     }
-    this.boxGeo.dispose();
+    this.boxStyle.dispose();
     this.iceGeo.dispose();
     this.labelGeo.dispose();
     this.iceMat.dispose();

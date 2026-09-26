@@ -1,12 +1,12 @@
 import type { Localized } from './types';
 
 /**
- * Cosmetics bought with coins: how the ants' house looks and what the ants wear. Even the cheapest
+ * Cosmetics bought with coins: the ants' house, hats and boxes. Even the cheapest
  * takes about ten levels of savings; the fanciest ones are long-term goals.
  */
 export interface LookItem {
   id: string;
-  kind: 'house' | 'hat';
+  kind: 'house' | 'hat' | 'box';
   name: Localized;
   price: number;
 }
@@ -31,6 +31,13 @@ export const HAT_LOOKS: LookItem[] = [
   { id: 'tophat', kind: 'hat', name: { ru: 'Цилиндр', en: 'Top Hat' }, price: 1200 },
   { id: 'santa', kind: 'hat', name: { ru: 'Новогодняя шапка', en: 'Santa Hat' }, price: 1200 },
   { id: 'crown', kind: 'hat', name: { ru: 'Корона', en: 'Crown' }, price: 2500 },
+];
+
+export const BOX_LOOKS: LookItem[] = [
+  { id: 'classic', kind: 'box', name: { ru: 'Классика', en: 'Classic' }, price: 0 },
+  { id: 'crate', kind: 'box', name: { ru: 'Деревянный ящик', en: 'Wooden Crate' }, price: 350 },
+  { id: 'basket', kind: 'box', name: { ru: 'Корзинка', en: 'Picnic Basket' }, price: 550 },
+  { id: 'metal', kind: 'box', name: { ru: 'Стальной ящик', en: 'Metal Case' }, price: 800 },
 ];
 
 /** Save key of an item ("house:mushroom"). */

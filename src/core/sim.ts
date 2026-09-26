@@ -10,6 +10,7 @@ import type { Rng } from './rng';
  *   empty cells and cells whose cube has been carried away. A cube is reachable when an ant can
  *   walk up to it from any direction.
  * - The player taps boxes at the front of the queue columns; a box moves into the leftmost free slot.
+ *   Linked boxes use adjacent slots; if needed, occupied slots slide left to make room.
  * - Every dispatch round, each occupied slot (left to right) sends one ant to the reachable cube of
  *   its color with the shortest walk from the nest: around the frame to an entrance, then over the
  *   free cells (so a cube at the end of a long tunnel counts as far away). The ant claims the cube
@@ -526,8 +527,12 @@ export class Sim {
     return n;
   }
 
-  private firstFreeSlot(): number {
-    for (let i = 0; i < this.slots.length; i++) if (!this.slots[i]) return i;
+  private firstFreeSlot(count = 1): number {
+    let free = 0;
+    for (let i = 0; i < this.slots.length; i++) {
+      free = this.slots[i] ? 0 : free + 1;
+      if (free === count) return i - count + 1;
+    }
     return -1;
   }
 
@@ -605,12 +610,18 @@ export class Sim {
   }
 
   private moveToSlots(group: number[], ev: SimEvent[] | undefined, grabbed: boolean): void {
+    let slot = this.firstFreeSlot(group.length);
+    if (slot < 0) {
+      // The caller checked total capacity. Close gaps without changing box order or ant counts.
+      slot = 0;
+      for (const sl of this.slots) if (sl) this.slots[slot++] = sl;
+      this.slots.fill(null, slot);
+    }
     for (const m of group) {
       const ci = this.boxCol[m];
       const col = this.columns[ci];
       const index = col.indexOf(m);
       col.splice(index, 1);
-      const slot = this.firstFreeSlot();
       this.slots[slot] = { box: m, color: this.s.boxColor[m], left: this.s.boxCount[m] };
       this.boxWhere[m] = Where.Slot;
       this.boxCol[m] = -1;
@@ -619,6 +630,7 @@ export class Sim {
         ev?.push({ t: 'reveal', box: m });
       }
       ev?.push({ t: 'take', box: m, slot, col: ci, index, grabbed: grabbed || undefined });
+      slot++;
     }
     this.taps++;
     this.afterQueueChange(ev);

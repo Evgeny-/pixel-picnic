@@ -62,7 +62,7 @@ export class GameView {
   private zoomPunch = 0;
   private theme: WorldTheme | null = null;
   /** Cosmetics from the shop, applied when a level loads. */
-  looks: { house: string; hat: string } = { house: 'cottage', hat: 'none' };
+  looks: { house: string; hat: string; box: string } = { house: 'cottage', hat: 'none', box: 'classic' };
   private night = false;
 
   constructor(container: HTMLElement, cb: ViewCallbacks) {
@@ -107,7 +107,7 @@ export class GameView {
     const shape = level.shape ?? shapeFor(level.n);
     this.board = new BoardView(sim, palette, theme.frame, shape);
     this.board.cubes.castShadow = !LOW_END;
-    this.queue = new QueueView(sim, palette, level.queueHint ?? 'count');
+    this.queue = new QueueView(sim, palette, level.queueHint ?? 'count', this.looks.box);
     this.nest = new NestView(theme.roof, this.looks.house as HouseSkin);
     this.ants = new AntsView(palette, this.board, sim, this.cb, shape, this.looks.hat as HatId);
     this.levelGroup.add(this.board.group, this.queue.group, this.nest.group, this.ants.group);

@@ -163,6 +163,80 @@ describe('Sim', () => {
     expect(sim.taps).toBe(1);
   });
 
+  describe('placing linked boxes in adjacent slots', () => {
+    function trayWithMiddlePair(slots = 4): Sim {
+      const boxes: BoxDef[] = [
+        { id: 0, color: 0, count: 1 },
+        { id: 1, color: 1, count: 1, link: 0 },
+        { id: 2, color: 1, count: 3, link: 0 },
+        { id: 3, color: 0, count: 1 },
+        { id: 4, color: 0, count: 4, link: 1 },
+        { id: 5, color: 1, count: 2, link: 1 },
+      ];
+      const sim = Sim.fromLevel(level(boxes, boxes.map((b) => [b.id]), slots));
+      sim.take(0);
+      sim.take(1);
+      sim.take(3);
+      sim.round();
+      return sim;
+    }
+
+    it.each(['take', 'grab'] as const)('%s shifts the existing pair left when the free slots are split', (action) => {
+      const sim = trayWithMiddlePair();
+      expect(sim.slots.map((s) => s?.box ?? null)).toEqual([null, 1, 2, null]);
+      const pair = sim.slots.slice(1, 3).map((s) => ({ ...s! }));
+      expect(pair.map((s) => s.left)).toEqual([0, 2]);
+      const before = sim.clone();
+      const ev: SimEvent[] = [];
+      expect(sim.canTake(4)).toBe(true);
+      expect(sim.whyNot(4)).toBe('ok');
+      expect(sim.legalMoves()).toEqual([4]);
+
+      expect(sim[action](4, ev)).toBe(true);
+
+      expect(sim.slots.map((s) => s?.box ?? null)).toEqual([1, 2, 4, 5]);
+      expect(sim.slots.slice(0, 2)).toEqual(pair);
+      expect(sim.taps).toBe(before.taps + 1);
+      expect(ev.filter((e) => e.t === 'take').map((e) => [e.box, e.slot])).toEqual([[4, 2], [5, 3]]);
+      expect(before.slots.map((s) => s?.box ?? null)).toEqual([null, 1, 2, null]);
+      sim.settle();
+      expect(sim.status).toBe('won');
+      expect(sim.freeSlots()).toBe(4);
+    });
+
+    it('uses an existing adjacent gap without shifting occupied slots', () => {
+      const sim = trayWithMiddlePair(5);
+      expect(sim.take(4)).toBe(true);
+      expect(sim.slots.map((s) => s?.box ?? null)).toEqual([null, 1, 2, 4, 5]);
+    });
+
+    it('still puts a single box in the first free slot', () => {
+      const sim = Sim.fromLevel(level([
+        { id: 0, color: 0, count: 1 },
+        { id: 1, color: 1, count: 1, link: 0 },
+        { id: 2, color: 1, count: 3, link: 0 },
+        { id: 3, color: 0, count: 5 },
+      ], [[0, 3], [1], [2]], 4));
+      sim.take(0);
+      sim.take(1);
+      sim.round();
+      expect(sim.slots.map((s) => s?.box ?? null)).toEqual([null, 1, 2, null]);
+      expect(sim.take(3)).toBe(true);
+      expect(sim.slots.map((s) => s?.box ?? null)).toEqual([3, 1, 2, null]);
+    });
+
+    it.each(['take', 'grab'] as const)('%s leaves the tray untouched when there is too little space', (action) => {
+      const sim = trayWithMiddlePair(3);
+      const before = sim.clone();
+      const ev: SimEvent[] = [];
+      expect(sim[action](4, ev)).toBe(false);
+      expect(sim.slots).toEqual(before.slots);
+      expect(sim.columns).toEqual(before.columns);
+      expect(sim.taps).toBe(before.taps);
+      expect(ev).toEqual([]);
+    });
+  });
+
   it('an empty linked box waits in its slot until its partner is empty too', () => {
     // A=0 (6 cubes), B=1 (6 cubes); all sides open: every cube is reachable except the two
     // B cubes in the middle row, which open up once their neighbours are gone.

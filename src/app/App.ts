@@ -29,7 +29,7 @@ import {
   type MechanicId,
 } from '../core/progression';
 import type { LevelDef } from '../core/types';
-import { HAT_LOOKS, HOUSE_LOOKS, lookKey } from '../core/looks';
+import { BOX_LOOKS, HAT_LOOKS, HOUSE_LOOKS, lookKey, type LookItem } from '../core/looks';
 import { lookPreview } from '../render/preview';
 import type { EmojiName } from '../ui/emoji.generated';
 
@@ -130,10 +130,10 @@ export class App {
     this.stage.addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse' || !this.game || dialogOpen()) return;
       const r = this.stage.getBoundingClientRect();
-      const id = this.game.hover(e.clientX - r.left, e.clientY - r.top);
+      const id = this.game.paused ? null : this.game.view.pickBox(e.clientX - r.left, e.clientY - r.top);
       this.stage.style.cursor = id !== null && (this.game.grabMode || this.game.sim.canTake(id)) ? 'pointer' : '';
     });
-    this.stage.addEventListener('pointerleave', () => this.game?.hover(-1, -1));
+    this.stage.addEventListener('pointerleave', () => { this.stage.style.cursor = ''; });
     // Dev helpers: ?reset, ?level=N (jump), ?boosters=K, ?coins=K, ?debug=1|0
     const q = new URLSearchParams(location.search);
     if (q.has('reset')) this.save = resetSave();
@@ -145,10 +145,11 @@ export class App {
     if (kb > 0) for (const b of BOOSTERS) this.save.boosters[b] = kb;
     const kc = Number(q.get('coins'));
     if (kc > 0) this.save.coins = kc;
-    // ?looks=mushroom,party — try a house and a hat (testing)
+    // ?looks=mushroom,party,basket — try a house, hat and boxes (testing)
     const lk = q.get('looks')?.split(',');
     if (lk?.[0]) this.save.looks.house = lk[0];
     if (lk?.[1]) this.save.looks.hat = lk[1];
+    if (lk?.[2]) this.save.looks.box = lk[2];
     const prog = Number(q.get('progress'));
     if (prog > 1) {
       for (let n = 1; n < prog; n++) this.save.stars[n] = this.save.stars[n] ?? (n % 4 === 0 ? 2 : 3);
@@ -286,7 +287,7 @@ export class App {
     this.game?.dispose();
     this.hud?.destroy();
     const view = this.ensureView();
-    view.looks = { house: this.save.looks.house, hat: this.save.looks.hat };
+    view.looks = { house: this.save.looks.house, hat: this.save.looks.hat, box: this.save.looks.box };
     this.stage.style.visibility = 'visible';
     const theme = themeForWorld(level.world);
     this.hud = new Hud(this.ui, {
@@ -496,89 +497,121 @@ export class App {
     return ok;
   }
 
-  /** Shop on the map: house looks, ant hats and boosters for coins. */
-  private openLooksShop(tab: 'house' | 'hat' | 'booster'): void {
-    const coins = h('p', { class: 'shop-coins', html: `${emoji('coin', 26)} ${this.save.coins}` });
-    const tabs = h('div', { class: 'seg shop-tabs' });
-    const tabDefs: [typeof tab, string][] = [['house', t('shopHouses')], ['hat', t('shopAnts')], ['booster', t('shopBoosters')]];
-    for (const [id, label] of tabDefs) {
-      const b = h('button', { class: id === tab ? 'on' : '', text: label });
-      b.addEventListener('click', () => {
-        audio.play('button');
-        closeAllDialogs();
-        this.openLooksShop(id);
-      });
-      tabs.append(b);
-    }
-    const grid = h('div', { class: 'shop-grid' });
-    const reopen = () => {
-      closeAllDialogs();
-      this.openLooksShop(tab);
-      this.map.render();
+  /** Keep the shop open while its tabs, balance and item states change. */
+  private openLooksShop(tab: LookItem['kind'] | 'booster'): void {
+    const coins = h('p', { class: 'shop-coins', attrs: { 'aria-live': 'polite' } });
+    const tabs = h('div', { class: 'seg shop-tabs', attrs: { role: 'tablist', 'aria-label': t('shop') } });
+    const grid = h('div', { class: 'shop-grid', attrs: { id: 'shop-items', role: 'tabpanel' } });
+    const tabDefs: [typeof tab, string][] = [
+      ['house', t('shopHouses')], ['hat', t('shopAnts')], ['box', t('shopBoxes')], ['booster', t('shopBoosters')],
+    ];
+    const tabButtons = new Map<typeof tab, HTMLButtonElement>();
+    const scrollTop = new Map<typeof tab, number>();
+    let updates: (() => void)[] = [];
+    const refresh = () => {
+      coins.innerHTML = `${emoji('coin', 26)} ${this.save.coins}`;
+      for (const update of updates) update();
     };
-    if (tab === 'booster') {
-      for (const b of BOOSTERS) {
-        const card = h(
-          'button',
-          { class: 'look-card' },
-          h('span', { class: 'look-pic booster-pic', html: boosterArt(b) }),
-          h('span', { class: 'nm', text: t(`booster_${b}`) }),
-          h('span', { class: 'price', html: `×${this.save.boosters[b]} · ${emoji('coin', 18)} ${BOOSTER_PRICE[b]}` }),
-        );
-        card.addEventListener('click', () => {
-          if (this.save.coins < BOOSTER_PRICE[b]) {
-            audio.play('invalid');
-            toast(this.ui, t('notEnough'));
-            return;
-          }
-          this.save.coins -= BOOSTER_PRICE[b];
-          this.save.boosters[b]++;
-          writeSave(this.save);
-          audio.play('coin');
-          reopen();
-        });
-        grid.append(card);
+    const savePurchase = () => {
+      writeSave(this.save);
+      refresh();
+      this.map.refreshTop(this.save.coins);
+    };
+    const renderItems = () => {
+      grid.replaceChildren();
+      updates = [];
+      for (const [id, b] of tabButtons) {
+        b.classList.toggle('on', id === tab);
+        b.setAttribute('aria-selected', String(id === tab));
+        b.tabIndex = id === tab ? 0 : -1;
       }
-    } else {
-      const items = tab === 'house' ? HOUSE_LOOKS : HAT_LOOKS;
-      const looks = this.save.looks;
-      for (const item of items) {
-        const owned = item.price === 0 || looks.owned.includes(lookKey(item));
-        const worn = (tab === 'house' ? looks.house : looks.hat) === item.id;
-        const status = worn
-          ? `${lineIcon('check', 16)} ${t('worn')}`
-          : owned
-            ? t('wear')
-            : `${emoji('coin', 18)} ${item.price}`;
-        const card = h(
-          'button',
-          { class: 'look-card' + (worn ? ' worn' : owned ? ' owned' : '') },
-          h('img', { class: 'look-pic', attrs: { src: lookPreview(item.kind, item.id), alt: '' } }),
-          h('span', { class: 'nm', text: loc(item.name) }),
-          h('span', { class: 'price', html: status }),
-        );
-        card.addEventListener('click', () => {
-          if (worn) return;
-          if (!owned) {
-            if (this.save.coins < item.price) {
+      grid.setAttribute('aria-labelledby', `shop-tab-${tab}`);
+      if (tab === 'booster') {
+        for (const b of BOOSTERS) {
+          const price = h('span', { class: 'price' });
+          const card = h('button', { class: 'look-card' },
+            h('span', { class: 'look-pic booster-pic', html: boosterArt(b) }),
+            h('span', { class: 'nm', text: t(`booster_${b}`) }), price,
+          );
+          updates.push(() => { price.innerHTML = `×${this.save.boosters[b]} · ${emoji('coin', 18)} ${BOOSTER_PRICE[b]}`; });
+          card.addEventListener('click', () => {
+            if (this.save.coins < BOOSTER_PRICE[b]) {
               audio.play('invalid');
               toast(this.ui, t('notEnough'));
               return;
             }
-            this.save.coins -= item.price;
-            looks.owned.push(lookKey(item));
-            audio.play('unlock');
-            toast(this.ui, t('bought'));
-          } else audio.play('button');
-          if (tab === 'house') looks.house = item.id;
-          else looks.hat = item.id;
-          writeSave(this.save);
-          reopen();
-        });
-        grid.append(card);
+            this.save.coins -= BOOSTER_PRICE[b];
+            this.save.boosters[b]++;
+            audio.play('coin');
+            savePurchase();
+          });
+          grid.append(card);
+        }
+      } else {
+        const items = tab === 'house' ? HOUSE_LOOKS : tab === 'hat' ? HAT_LOOKS : BOX_LOOKS;
+        const looks = this.save.looks;
+        for (const item of items) {
+          const owned = () => item.price === 0 || looks.owned.includes(lookKey(item));
+          const price = h('span', { class: 'price' });
+          const card = h('button', { class: 'look-card' },
+            h('img', { class: 'look-pic', attrs: { src: lookPreview(item.kind, item.id), alt: '' } }),
+            h('span', { class: 'nm', text: loc(item.name) }), price,
+          );
+          updates.push(() => {
+            const worn = looks[item.kind] === item.id;
+            card.classList.toggle('worn', worn);
+            card.classList.toggle('owned', !worn && owned());
+            card.setAttribute('aria-pressed', String(worn));
+            price.innerHTML = worn ? `${lineIcon('check', 16)} ${t('worn')}`
+              : owned() ? t('wear') : `${emoji('coin', 18)} ${item.price}`;
+          });
+          card.addEventListener('click', () => {
+            if (looks[item.kind] === item.id) return;
+            if (!owned()) {
+              if (this.save.coins < item.price) {
+                audio.play('invalid');
+                toast(this.ui, t('notEnough'));
+                return;
+              }
+              this.save.coins -= item.price;
+              looks.owned.push(lookKey(item));
+              audio.play('unlock');
+              toast(this.ui, t('bought'));
+            } else audio.play('button');
+            looks[item.kind] = item.id;
+            savePurchase();
+          });
+          grid.append(card);
+        }
       }
+      refresh();
+      grid.scrollTop = scrollTop.get(tab) ?? 0;
+    };
+    for (const [id, label] of tabDefs) {
+      const b = h('button', { text: label, attrs: { id: `shop-tab-${id}`, role: 'tab', 'aria-controls': 'shop-items' } });
+      b.addEventListener('click', () => {
+        if (tab === id) return;
+        scrollTop.set(tab, grid.scrollTop);
+        tab = id;
+        audio.play('button');
+        renderItems();
+      });
+      b.addEventListener('keydown', (e) => {
+        const index = tabDefs.findIndex(([key]) => key === id);
+        const next = e.key === 'ArrowRight' ? (index + 1) % tabDefs.length
+          : e.key === 'ArrowLeft' ? (index + tabDefs.length - 1) % tabDefs.length
+            : e.key === 'Home' ? 0 : e.key === 'End' ? tabDefs.length - 1 : -1;
+        if (next < 0) return;
+        e.preventDefault();
+        const button = tabButtons.get(tabDefs[next][0])!;
+        button.focus();
+        button.click();
+      });
+      tabButtons.set(id, b);
+      tabs.append(b);
     }
-    openDialog({ title: t('shop'), head: 'purple', body: [coins, tabs, grid], onClose: () => undefined, cls: 'wide' });
+    openDialog({ title: t('shop'), head: 'purple', body: [coins, tabs, grid], onClose: () => undefined, cls: 'wide shop-dialog' });
+    renderItems();
   }
 
   private openShop(b: BoosterId, fromStuck = false): void {
@@ -800,28 +833,39 @@ export class App {
   }
 
   private volumeRow(kind: 'music' | 'sfx'): HTMLElement {
-    const input = h('input', { attrs: { type: 'range', min: '0', max: '1', step: '0.05' } }) as HTMLInputElement;
+    const name = t(kind === 'music' ? 'music' : 'sounds');
+    const input = h('input', { attrs: { id: `volume-${kind}`, type: 'range', min: '0', max: '1', step: '0.05', 'aria-label': name } });
     input.value = String(this.save.settings[kind]);
+    const value = h('output', { class: 'volume-value', attrs: { for: input.id } });
+    const refresh = () => {
+      const percent = `${Math.round(Number(input.value) * 100)}%`;
+      value.textContent = percent;
+      input.style.setProperty('--volume', percent);
+      input.setAttribute('aria-valuetext', percent);
+    };
+    refresh();
     input.addEventListener('input', () => {
       const v = Number(input.value);
       this.save.settings[kind] = v;
       if (kind === 'music') audio.setMusicVolume(v);
       else audio.setSfxVolume(v);
+      refresh();
       writeSave(this.save);
     });
     input.addEventListener('change', () => kind === 'sfx' && audio.play('tap'));
     return h(
       'div',
-      { class: 'setting-row' },
-      h('span', { html: `${emoji(kind === 'music' ? 'musical-note' : 'speaker-high-volume', 26)} ${t(kind === 'music' ? 'music' : 'sounds')}` }),
-      input,
+      { class: 'setting-row volume-setting' },
+      h('label', { class: 'setting-name', attrs: { for: input.id } },
+        h('span', { class: `setting-icon ${kind}`, html: lineIcon(kind === 'music' ? 'music' : 'sound', 20) }), name),
+      h('div', { class: 'volume-control' }, input, value),
     );
   }
 
   private openSettings(): void {
-    const seg = h('div', { class: 'seg' });
+    const seg = h('div', { class: 'seg', attrs: { role: 'group', 'aria-label': t('language') } });
     (['ru', 'en'] as Lang[]).forEach((l) => {
-      const b = h('button', { class: getLang() === l ? 'on' : '', text: l === 'ru' ? 'Русский' : 'English' });
+      const b = h('button', { class: getLang() === l ? 'on' : '', text: l === 'ru' ? 'Русский' : 'English', attrs: { 'aria-pressed': String(getLang() === l) } });
       b.addEventListener('click', () => {
         audio.play('button');
         this.save.settings.lang = l;
@@ -834,41 +878,47 @@ export class App {
       seg.append(b);
     });
     const langRow = h('div', { class: 'setting-row' }, h('span', { text: t('language') }), seg);
-    const dbgSeg = h('div', { class: 'seg' });
+    const select = (group: HTMLElement, selected: HTMLButtonElement) => {
+      for (const b of group.querySelectorAll('button')) {
+        b.classList.toggle('on', b === selected);
+        b.setAttribute('aria-pressed', String(b === selected));
+      }
+    };
+    const dbgSeg = h('div', { class: 'seg', attrs: { role: 'group', 'aria-label': t('debug') } });
     ([true, false] as const).forEach((v) => {
-      const b = h('button', { class: this.save.settings.debug === v ? 'on' : '', text: t(v ? 'on' : 'off') });
+      const b = h('button', { class: this.save.settings.debug === v ? 'on' : '', text: t(v ? 'on' : 'off'), attrs: { 'aria-pressed': String(this.save.settings.debug === v) } });
       b.addEventListener('click', () => {
         audio.play('button');
         this.save.settings.debug = v;
         writeSave(this.save);
-        closeAllDialogs();
+        select(dbgSeg, b);
         this.map.show(this.mapData());
-        this.openSettings();
       });
       dbgSeg.append(b);
     });
     const debugRow = h(
       'div',
-      { class: 'setting-row' },
-      h('span', { html: `${emoji('lady-beetle', 24)} ${t('debug')}<br><small style="font-size:12px;opacity:.7">${t('debugHint')}</small>` }),
+      { class: 'setting-row debug-setting' },
+      h('span', { class: 'setting-name' }, h('span', { html: emoji('lady-beetle', 24) }), t('debug')),
       dbgSeg,
+      h('small', { class: 'setting-hint', text: t('debugHint') }),
     );
-    const nightSeg = h('div', { class: 'seg' });
+    const nightSeg = h('div', { class: 'seg', attrs: { role: 'group', 'aria-label': t('nightMode') } });
     (['auto', 'on', 'off'] as const).forEach((v) => {
-      const b = h('button', { class: (this.save.settings.night ?? 'auto') === v ? 'on' : '', text: t(v === 'auto' ? 'auto' : v) });
+      const b = h('button', { class: (this.save.settings.night ?? 'auto') === v ? 'on' : '', text: t(v === 'auto' ? 'auto' : v), attrs: { 'aria-pressed': String((this.save.settings.night ?? 'auto') === v) } });
       b.addEventListener('click', () => {
         audio.play('button');
         this.save.settings.night = v;
         writeSave(this.save);
         this.applyNight();
-        closeAllDialogs();
-        this.openSettings();
+        select(nightSeg, b);
       });
       nightSeg.append(b);
     });
-    const nightRow = h('div', { class: 'setting-row' }, h('span', { html: `${emoji('crescent-moon', 24)} ${t('nightMode')}` }), nightSeg);
-    const credits = button(t('credits'), 'white small', () => this.openCredits());
-    const reset = button(t('resetProgress'), 'red small', () => {
+    const nightRow = h('div', { class: 'setting-row' }, h('span', { class: 'setting-name' }, h('span', { html: emoji('crescent-moon', 24) }), t('nightMode')), nightSeg);
+    const credits = button(t('credits'), 'white small settings-link', () => this.openCredits());
+    credits.append(h('span', { class: 'forward-icon', html: lineIcon('back', 18) }));
+    const reset = button(t('resetProgress'), 'red small settings-reset', () => {
       openDialog({
         title: t('resetProgress'),
         head: 'red',
@@ -892,18 +942,37 @@ export class App {
     openDialog({
       title: t('settings'),
       head: 'purple',
-      body: [this.volumeRow('music'), this.volumeRow('sfx'), langRow, nightRow, debugRow, h('div', { class: 'actions' }, credits, reset)],
+      cls: 'utility-dialog settings-dialog',
+      body: [h('div', { class: 'utility-content' },
+        h('div', { class: 'settings-section' }, this.volumeRow('music'), this.volumeRow('sfx')),
+        h('div', { class: 'settings-section' }, langRow, nightRow),
+        h('div', { class: 'settings-section' }, debugRow),
+        h('div', { class: 'settings-footer' }, credits, reset))],
       onClose: () => undefined,
     });
   }
 
   private openCredits(): void {
+    const link = (text: string, href: string) => h('a', { text, attrs: { href, target: '_blank', rel: 'noopener noreferrer' } });
+    const entry = (name: string, url: string, license: string, licenseUrl: string, note?: string) =>
+      h('li', {}, h('div', { class: 'credit-line' }, link(name, url), link(license, licenseUrl)), note && h('small', { text: note }));
+    const pictures = h('section', { class: 'credit-section' }, h('h3', { text: t('creditPictures') }),
+      h('ul', { class: 'credit-list' },
+        entry('Microsoft Fluent Emoji', 'https://github.com/microsoft/fluentui-emoji', 'MIT', 'https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE'),
+        entry('Twemoji', 'https://github.com/jdecked/twemoji', 'CC BY 4.0', 'https://creativecommons.org/licenses/by/4.0/', t('creditTwemoji')),
+        entry('Google Noto Emoji', 'https://github.com/googlefonts/noto-emoji', 'Apache 2.0', 'https://github.com/googlefonts/noto-emoji/blob/main/LICENSE', '© Google Inc.')));
+    const tools = h('section', { class: 'credit-section' }, h('h3', { text: t('creditTools') }),
+      h('ul', { class: 'credit-list' },
+        entry('Nunito', 'https://fonts.google.com/specimen/Nunito', 'SIL OFL 1.1', 'https://openfontlicense.org/'),
+        entry('three.js', 'https://threejs.org/', 'MIT', 'https://github.com/mrdoob/three.js/blob/dev/LICENSE')));
     openDialog({
       title: t('credits'),
       head: 'blue',
-      scroll: true,
-      body: [h('p', { class: 'credits', text: t('licenseText') })],
-      buttons: [{ label: t('close'), cls: 'white small', onClick: () => undefined }],
+      cls: 'utility-dialog credits-dialog',
+      body: [h('div', { class: 'utility-content' }, pictures, tools,
+        h('section', { class: 'credit-section' }, h('h3', { text: t('creditAudio') }), h('p', { text: t('creditAudioNote') })))],
+      onClose: () => undefined,
+      buttons: [{ label: t('close'), cls: 'white small utility-done', onClick: () => undefined }],
     });
   }
 

@@ -146,28 +146,6 @@ export class Game {
     return this.takeBox(res.moves[0]) ? 'moved' : 'wait';
   }
 
-  private hoverId: number | null = null;
-
-  /** Desktop hover: lift the cubes the hovered box's ants could reach right now. Returns the box id. */
-  hover(x: number, y: number): number | null {
-    const id = x < 0 || this.paused ? null : this.view.pickBox(x, y);
-    if (id !== this.hoverId) {
-      this.hoverId = id;
-      this.refreshHover();
-    }
-    return id;
-  }
-
-  private refreshHover(): void {
-    const id = this.hoverId;
-    if (id === null || this.sim.boxHidden[id]) {
-      this.view.board.highlight(null);
-      return;
-    }
-    const color = this.sim.boxColor(id);
-    this.view.board.highlight(this.sim.exposedCells().filter((c) => this.sim.cellColor(c) === color && this.view.board.isPresent(c)));
-  }
-
   private pushHistory(): void {
     this.history.push(this.sim.clone());
     if (this.history.length > 60) this.history.shift();
@@ -233,7 +211,6 @@ export class Game {
 
   private handleRound(ev: SimEvent[]): void {
     this.view.apply(ev, ROUND);
-    if (this.hoverId !== null) this.refreshHover();
     let outs = 0;
     for (const e of ev) {
       if (e.t === 'ant') outs++;

@@ -120,8 +120,9 @@ export class MapScreen {
     return !this.el.classList.contains('hidden');
   }
 
-  refreshTop(): void {
-    this.coinsEl.textContent = String(this.data.coins);
+  refreshTop(coins = this.data.coins): void {
+    this.data.coins = coins;
+    this.coinsEl.textContent = String(coins);
   }
 
   /** Y (from the top of the inner area) of a level node. */

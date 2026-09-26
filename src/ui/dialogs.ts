@@ -1,6 +1,7 @@
 import { h, button } from './dom';
 import { lineIcon } from './icons';
 import { audio } from '../audio/audio';
+import { t } from '../app/i18n';
 
 export interface DialogButton {
   label: string;
@@ -42,8 +43,10 @@ export function closeAllDialogs(): void {
 }
 
 export function openDialog(opts: DialogOptions): DialogHandle {
+  const utility = opts.cls?.split(' ').includes('utility-dialog');
+  const previousFocus = document.activeElement as HTMLElement | null;
   const overlay = h('div', { class: 'overlay' });
-  const dlg = h('div', { class: 'dialog' + (opts.scroll ? ' scroll' : '') + (opts.cls ? ' ' + opts.cls : '') });
+  const dlg = h('div', { class: 'dialog' + (opts.scroll ? ' scroll' : '') + (opts.cls ? ' ' + opts.cls : ''), attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': opts.title } });
   dlg.append(h('div', { class: 'dialog-head ' + (opts.head ?? 'blue'), text: opts.title }));
   let closed = false;
   const handle: DialogHandle = {
@@ -54,11 +57,12 @@ export function openDialog(opts: DialogOptions): DialogHandle {
       const i = stack.indexOf(handle);
       if (i >= 0) stack.splice(i, 1);
       overlay.classList.add('out');
+      if (utility && previousFocus?.isConnected && !previousFocus.closest('.overlay.out')) previousFocus.focus({ preventScroll: true });
       setTimeout(() => overlay.remove(), 180);
     },
   };
   if (opts.closable !== false && opts.onClose) {
-    const x = h('button', { class: 'btn close-x', html: lineIcon('close', 22) });
+    const x = h('button', { class: 'btn close-x', html: lineIcon('close', 22), attrs: { 'aria-label': t('close') } });
     x.addEventListener('click', () => {
       audio.play('button');
       handle.close();
@@ -81,6 +85,26 @@ export function openDialog(opts: DialogOptions): DialogHandle {
   overlay.append(dlg);
   layer.append(overlay);
   stack.push(handle);
+  if (utility) {
+    const controls = () => [...dlg.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)')];
+    controls()[0]?.focus({ preventScroll: true });
+    dlg.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && opts.onClose) {
+        e.stopPropagation();
+        handle.close();
+        opts.onClose();
+      } else if (e.key === 'Tab') {
+        const items = controls(), first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    });
+  }
   audio.play('whoosh', { volume: 0.5 });
   return handle;
 }
