@@ -160,8 +160,12 @@ Other URL flags: `?level=25` jumps to a level, `?boosters=5`, `?coins=999`, `?pr
 `?demo` (the colony plays by itself), `?looks=mushroom,party,basket` (house, hat, boxes), `?reset`.
 
 Pushing to `main` runs the tests, builds the game and publishes it to
-`evgeny.io/games/pixel-picnic/` (GitHub Actions; needs a `DEPLOY_TOKEN` secret with write access
-to the site repository).
+`evgeny.io/games/pixel-picnic/`. The `SITE_DEPLOY_KEY` Actions secret holds the private half of
+a dedicated SSH deploy key; its public half must have write access to
+`evgenyio/evgenyio.github.io`. The workflow updates only `games/pixel-picnic/` on the site's
+`master` branch, which triggers GitHub Pages. It fails if the key is missing and confirms that
+the public `version.json` matches the new build before reporting success. Runs are serialized;
+an outdated game commit skips publishing when a newer `main` commit is already available.
 
 ## Credits & licenses
 

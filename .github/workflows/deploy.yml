@@ -5,14 +5,32 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: pixel-picnic-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    env:
-      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+    timeout-minutes: 15
     steps:
+      - name: Check deployment credentials
+        env:
+          SITE_DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
+        run: |
+          if [ -z "$SITE_DEPLOY_KEY" ]; then
+            echo "::error::SITE_DEPLOY_KEY is missing. Add the site's SSH deploy key to this repository's Actions secrets."
+            exit 1
+          fi
+
       - name: Checkout game repo
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,35 +47,77 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check that this is still the latest main commit
+        id: current
+        run: |
+          git fetch origin main
+          if [ "$GITHUB_SHA" = "$(git rev-parse origin/main)" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "A newer main commit will publish its build."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout site repo
-        if: env.DEPLOY_TOKEN != ''
+        if: steps.current.outputs.publish == 'true'
         uses: actions/checkout@v4
         with:
           repository: evgenyio/evgenyio.github.io
-          token: ${{ secrets.DEPLOY_TOKEN }}
+          ref: master
+          ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
           path: site
 
       - name: Deploy to /games/pixel-picnic/
-        if: env.DEPLOY_TOKEN != ''
+        if: steps.current.outputs.publish == 'true'
         run: |
           mkdir -p site/games/pixel-picnic
-          rm -rf site/games/pixel-picnic/*
-          cp -r dist/* site/games/pixel-picnic/
+          rsync -a --delete dist/ site/games/pixel-picnic/
 
       - name: Commit and push
-        if: env.DEPLOY_TOKEN != ''
+        if: steps.current.outputs.publish == 'true'
+        working-directory: site
         run: |
-          cd site
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add games/pixel-picnic
           if git diff --cached --quiet; then
             echo "No changes to deploy"
-          else
-            git commit -m "Deploy pixel-picnic"
-            git push
+            exit 0
           fi
+          git commit -m "Deploy pixel-picnic (${GITHUB_SHA:0:7})"
+          # Other projects publish into this repository too. Preserve their commits.
+          for attempt in 1 2 3; do
+            git pull --rebase origin master
+            if git push origin HEAD:master; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Could not push the site update after three attempts."
+          exit 1
 
-      - name: Deploy skipped
-        if: env.DEPLOY_TOKEN == ''
-        run: echo "::notice::DEPLOY_TOKEN secret is not set, so the build was checked but not published."
+      - name: Wait for the public site to serve this build
+        if: steps.current.outputs.publish == 'true'
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { setTimeout } from 'node:timers/promises';
+          const expected = JSON.parse(readFileSync('dist/version.json', 'utf8')).id;
+          const site = 'https://evgeny.io/games/pixel-picnic/';
+          for (let attempt = 0; attempt < 60; attempt++) {
+            try {
+              const res = await fetch(`${site}version.json?build=${encodeURIComponent(expected)}&attempt=${attempt}`, {
+                cache: 'no-store', signal: AbortSignal.timeout(10000),
+              });
+              if (res.ok && (await res.json()).id === expected) {
+                console.log(`Published ${expected} at ${site}`);
+                appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Published [Pixel Picnic](${site}) from \`${process.env.GITHUB_SHA}\`.\n`);
+                process.exit(0);
+              }
+            } catch (error) {
+              console.log(`Waiting for GitHub Pages: ${error.message}`);
+            }
+            await setTimeout(5000);
+          }
+          throw new Error(`The public site did not serve build ${expected} within the deployment window.`);
+          NODE
