@@ -1,0 +1,33 @@
+.performance-monitor {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 78px);
+  left: max(8px, env(safe-area-inset-left, 0px));
+  z-index: 1500;
+  max-width: calc(100vw - 16px);
+  padding: 7px 9px;
+  border: 1px solid #ffffff30;
+  border-radius: 7px;
+  background: #111522e8;
+  color: #f5f7ff;
+  font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  pointer-events: none;
+  user-select: none;
+  contain: content;
+}
+.performance-monitor > * { display: block; }
+.performance-monitor > :first-child { color: #c7cbd7; font-size: 9px; }
+.performance-monitor > strong { font-size: 12px; font-weight: 700; }
+.performance-monitor[data-pace='good'] > strong { color: #a6edbb; }
+.performance-monitor[data-pace='fair'] > strong { color: #ffd98e; }
+.performance-monitor[data-pace='slow'] > strong { color: #ffabb5; }
+
+.performance-monitor .performance-spike-main {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #ffffff30;
+  color: #ffe09d;
+}
+.performance-monitor .performance-spike-detail { color: #e6decd; }
+.performance-monitor > [hidden] { display: none; }

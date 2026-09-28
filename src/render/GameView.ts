@@ -13,6 +13,10 @@ import { computeLayout, type Layout } from './layout';
 import { GroundView } from './GroundView';
 import { AmbientView } from './AmbientView';
 import type { WorldTheme } from './themes';
+import { readablePalette } from './palette';
+import type { CreatureId } from '../core/creatures';
+import { perf } from './PerformanceMonitor';
+import { AdaptiveRenderScale } from './AdaptiveRenderScale';
 
 /** Phones/tablets get a lighter render path (pixel ratio, shadow map, fewer shadow casters). */
 export const LOW_END =
@@ -64,11 +68,16 @@ export class GameView {
   /** Cosmetics from the shop, applied when a level loads. */
   looks: { house: string; hat: string; box: string } = { house: 'cottage', hat: 'none', box: 'classic' };
   private night = false;
+  creature: CreatureId = 'ant';
+  private renderScale: AdaptiveRenderScale | null;
+  private scaleSuspended = false;
 
   constructor(container: HTMLElement, cb: ViewCallbacks) {
     this.cb = cb;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LOW_END ? 1.6 : 2));
+    const diagnosticDpr = perf.enabled ? Number(new URLSearchParams(location.search).get('dpr')) : 0;
+    this.renderer.setPixelRatio(diagnosticDpr > 0 ? Math.max(0.75, Math.min(2, diagnosticDpr)) : Math.min(window.devicePixelRatio || 1, LOW_END ? 1.6 : 2));
+    this.renderScale = diagnosticDpr > 0 ? null : new AdaptiveRenderScale(this.renderer.getPixelRatio());
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -100,22 +109,28 @@ export class GameView {
   }
 
   load(level: LevelDef, sim: Sim, theme: WorldTheme): void {
+    this.renderScale?.resetCadence();
     this.unload();
     this.level = level;
     this.sim = sim;
-    const palette = level.picture.palette;
+    const palette = readablePalette(level.picture.palette, level.picture.cells);
     const shape = level.shape ?? shapeFor(level.n);
     this.board = new BoardView(sim, palette, theme.frame, shape);
     this.board.cubes.castShadow = !LOW_END;
     this.queue = new QueueView(sim, palette, level.queueHint ?? 'count', this.looks.box);
     this.nest = new NestView(theme.roof, this.looks.house as HouseSkin);
-    this.ants = new AntsView(palette, this.board, sim, this.cb, shape, this.looks.hat as HatId);
+    this.ants = new AntsView(palette, this.board, sim, this.cb, shape, this.looks.hat as HatId, this.creature);
     this.levelGroup.add(this.board.group, this.queue.group, this.nest.group, this.ants.group);
     this.theme = theme;
     this.ground.setTheme(theme);
     this.ambient.setTheme(theme);
     this.applyLook();
     this.relayout(true);
+    // Include hidden queue boxes and zero-count creature batches. Their material variants
+    // should compile while the level is opening, not when a new row or the first animal appears.
+    void this.renderer.compileAsync(this.scene, this.camera).catch((error: unknown) => {
+      console.warn('Scene shader warmup failed; normal rendering will retry.', error);
+    });
   }
 
   /** Night mode: moonlight, a dark ground and darker surfaces; the pictures keep their colors. */
@@ -163,12 +178,28 @@ export class GameView {
   }
 
   resize(w: number, h: number): void {
+    // HUD ResizeObserver can fire without a canvas-size change. Reassigning canvas dimensions
+    // would still clear/reallocate the drawing buffer, including its multisampled attachments.
+    if (w === this.width && h === this.height) return;
+    this.renderScale?.resetCadence();
     this.width = w;
     this.height = h;
     this.renderer.setSize(w, h, false);
     this.renderer.domElement.style.width = w + 'px';
     this.renderer.domElement.style.height = h + 'px';
     if (this.sim) this.relayout(false);
+  }
+
+  /** Keep the 3D scene responsive on high-DPI displays; HTML text remains at native resolution. */
+  observeFrame(frameMs: number, now: number, suspended: boolean): void {
+    if (!this.renderScale) return;
+    if (suspended !== this.scaleSuspended) {
+      this.scaleSuspended = suspended;
+      this.renderScale.resetCadence();
+    }
+    if (suspended) return;
+    const dpr = this.renderScale.sample(frameMs, now);
+    if (dpr !== null) perf.task(`render scale ${dpr}`, () => this.renderer.setPixelRatio(dpr));
   }
 
   /** Recompute positions (screen rotation, extra slot). */
@@ -294,6 +325,7 @@ export class GameView {
 
   update(dt: number, time: number): void {
     if (!this.board) return;
+    const animationStart = perf.enabled ? performance.now() : 0;
     this.board.update(dt);
     this.queue.update(dt, time);
     this.ants.update(dt, time);
@@ -306,7 +338,10 @@ export class GameView {
       this.camera.zoom = 1 + Math.sin(this.zoomPunch * Math.PI) * 0.015;
       this.camera.updateProjectionMatrix();
     }
+    if (perf.enabled) perf.record('animation', performance.now() - animationStart);
+    const renderStart = perf.enabled ? performance.now() : 0;
     this.renderer.render(this.scene, this.camera);
+    if (perf.enabled) perf.record('renderSubmit', performance.now() - renderStart);
   }
 
   /** True when nothing is moving any more (ants home, boxes settled). */

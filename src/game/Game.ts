@@ -6,6 +6,7 @@ import type { LevelDef } from '../core/types';
 import { GameView } from '../render/GameView';
 import type { WorldTheme } from '../render/themes';
 import { audio } from '../audio/audio';
+import { DispatchQueue } from './DispatchQueue';
 
 import type { BoosterId } from '../core/progression';
 export type { BoosterId };
@@ -14,7 +15,7 @@ export interface GameHooks {
   onWin(g: Game): void;
   onStuck(g: Game): void;
   onProgress(eaten: number, total: number): void;
-  onToast(text: 'blocked' | 'frozen' | 'slots' | 'link' | 'nohint' | 'grab'): void;
+  onToast(text: 'blocked' | 'frozen' | 'slots' | 'link' | 'nohint' | 'grab' | 'queued' | 'unqueued'): void;
   onChange(g: Game): void;
 }
 
@@ -40,6 +41,7 @@ export class Game {
   /** Seconds played (not paused), for the speed bonus. */
   playTime = 0;
   private history: Sim[] = [];
+  private dispatch = new DispatchQueue();
   boostersUsed = 0;
   taps = 0;
   private finished: 'won' | 'stuck' | null = null;
@@ -74,6 +76,15 @@ export class Game {
     return this.finished ?? 'playing';
   }
 
+  /** Planned group positions, also useful to render an accessible queue summary. */
+  get pendingBoxes(): ReadonlyMap<number, number> {
+    return this.dispatch.positions(this.sim);
+  }
+
+  canSelectBox(id: number): boolean {
+    return !this.paused && this.finished !== 'won' && this.dispatch.canSchedule(this.sim, id);
+  }
+
   /** Visual callbacks from the ants. */
   onPick(): void {
     audio.play('pick');
@@ -99,20 +110,22 @@ export class Game {
       this.doGrab(id);
       return;
     }
-    const why = this.sim.whyNot(id);
-    if (why !== 'ok') {
-      this.view.queue.shake(id);
-      audio.play('invalid');
-      if (why !== 'gone') this.hooks.onToast(why);
+    if (this.dispatch.size === 0 && this.sim.canTake(id)) {
+      this.takeBox(id);
       return;
     }
-    this.pushHistory();
-    const ev: SimEvent[] = [];
-    this.sim.take(id, ev);
-    this.taps++;
-    this.afterAction(ev);
-    const group = this.sim.groupOf(id);
-    audio.play(group.length > 1 ? 'link' : 'place');
+    const request = this.dispatch.toggle(this.sim, id);
+    if (request.kind === 'rejected') {
+      this.view.queue.shake(id);
+      audio.play('invalid');
+      if (request.reason !== 'gone') this.hooks.onToast(request.reason);
+      return;
+    }
+    this.setHint(null);
+    this.syncDispatch();
+    this.hooks.onToast(request.kind === 'added' ? 'queued' : 'unqueued');
+    this.hooks.onChange(this);
+    this.drainDispatch();
   }
 
   /** Programmatic tap on a box (demo mode). Returns false if the box can't be taken now. */
@@ -151,7 +164,7 @@ export class Game {
     if (this.history.length > 60) this.history.shift();
   }
 
-  private afterAction(ev: SimEvent[]): void {
+  private afterAction(ev: SimEvent[], drain = true): void {
     this.setHint(null);
     this.view.apply(ev);
     for (const e of ev) {
@@ -169,7 +182,29 @@ export class Game {
       this.sim.unstick();
     }
     this.stuckPending = false;
+    this.syncDispatch();
     this.hooks.onChange(this);
+    if (drain) this.drainDispatch();
+  }
+
+  private syncDispatch(): void {
+    this.view.queue.setPending(this.dispatch.positions(this.sim));
+  }
+
+  /** Dispatch before stuck detection, as soon as the required slots become available. */
+  private drainDispatch(): void {
+    // While the player aims the magnet, reserve the free slots for that explicit choice.
+    if (this.paused || this.finished === 'won' || this.grabMode) return;
+    let id: number | null;
+    while ((id = this.dispatch.next(this.sim)) !== null) {
+      this.pushHistory();
+      const ev: SimEvent[] = [];
+      if (!this.sim.take(id, ev)) break;
+      this.taps++;
+      this.afterAction(ev, false);
+      audio.play(this.sim.groupOf(id).length > 1 ? 'link' : 'place');
+    }
+    this.syncDispatch();
   }
 
   private sparkleBox(id: number, color: string): void {
@@ -187,9 +222,10 @@ export class Game {
         const ev: SimEvent[] = [];
         const sent = this.sim.round(ev);
         if (ev.length) this.handleRound(ev);
+        this.drainDispatch();
         if (sent === 0) {
           this.acc = 0;
-          if (this.sim.checkStuck()) this.stuckPending = true;
+          if (!this.grabMode && this.sim.checkStuck()) this.stuckPending = true;
           break;
         }
       }
@@ -201,7 +237,7 @@ export class Game {
       this.finished = 'won';
       this.hooks.onWin(this);
     }
-    if (this.stuckPending && this.view.isIdle() && this.sim.status === 'stuck') {
+    if (!this.grabMode && this.stuckPending && this.view.isIdle() && this.sim.status === 'stuck') {
       this.stuckPending = false;
       this.finished = 'stuck';
       this.view.queue.pulseSlots();
@@ -263,6 +299,9 @@ export class Game {
         break;
       case 'grab':
         this.grabMode = true;
+        // A stuck result may be waiting for returning ants. A magnet can still rescue it.
+        this.sim.unstick();
+        this.stuckPending = false;
         this.hooks.onToast('grab');
         this.hooks.onChange(this);
         return true;
@@ -280,6 +319,7 @@ export class Game {
   cancelGrab(): void {
     this.grabMode = false;
     this.hooks.onChange(this);
+    this.drainDispatch();
   }
 
   private doGrab(id: number): void {
@@ -301,6 +341,9 @@ export class Game {
   private undo(): boolean {
     const prev = this.history.pop();
     if (!prev) return false;
+    // Undo must not immediately repeat the move through a leftover queued intention.
+    this.dispatch.clear();
+    this.syncDispatch();
     // Rewind: ants vanish; cubes that were already on their way are simply gone.
     this.sim = prev;
     this.sim.flushPending();
@@ -322,6 +365,7 @@ export class Game {
     v.queue.syncFromSim(true);
     v.relayout(true);
     v.queue.syncFromSim(false);
+    this.syncDispatch();
   }
 
   /** Shuffle the queue; prefer arrangements the solver can finish from. */

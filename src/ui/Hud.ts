@@ -5,6 +5,8 @@ import { BOOSTERS, type BoosterId } from '../core/progression';
 import type { Tier } from '../core/types';
 import type { EmojiName } from './emoji.generated';
 import { audio } from '../audio/audio';
+import type { CreatureId } from '../core/creatures';
+import { creaturePreview } from '../render/preview';
 
 export interface HudCallbacks {
   onPause(): void;
@@ -71,8 +73,7 @@ export class Hud {
     this.title = h('div', { class: 'level-name' });
     this.tierEl = h('div', { class: 'tier hidden' });
     this.fill = h('div', { class: 'progress-fill' });
-    this.progAnt = h('span', { html: emoji('ant', 28) });
-    this.progAnt.style.position = 'absolute';
+    this.progAnt = h('span', { class: 'progress-mascot', html: emoji('ant', 28) });
     this.progAnt.style.left = '0%';
     const prog = h('div', { class: 'progress' }, this.fill, this.progAnt);
     this.progAnt.firstElementChild?.classList.add('prog-ant');
@@ -109,6 +110,14 @@ export class Hud {
     this.el.append(this.top, this.dock);
     root.append(this.el);
     this.setSpeed(1);
+  }
+
+  setCreature(id: CreatureId): void {
+    if (id === 'ant') {
+      this.progAnt.innerHTML = emoji('ant', 28);
+      return;
+    }
+    this.progAnt.replaceChildren(h('img', { class: 'prog-ant', attrs: { src: creaturePreview(id), alt: '', width: '40', height: '40' } }));
   }
 
   setLevel(n: number, tier: Tier): void {

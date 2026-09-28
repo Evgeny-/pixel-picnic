@@ -83,6 +83,8 @@ Every 5th level is **hard**, every 10th is **super hard**.
 
 ## Under the hood
 
+For frame-time diagnostics and geometry budgets, see [Performance checks](docs/performance.md).
+
 - **Deterministic rules engine** ([`src/core/sim.ts`](src/core/sim.ts)). The engine keeps a
   shortest-walk distance field over the free cells — from the nest around the frame to every
   unfenced border cell and on through the tunnels already eaten — and updates it incrementally as
@@ -102,7 +104,7 @@ Every 5th level is **hard**, every 10th is **super hard**.
   three players — one tapping **at random**, a "casual" one who only takes colors the ants can
   reach, and a greedy one — and tunes the queue (solver-checked local search: swapping, merging,
   splitting and moving boxes) until the win rates land in the band for the level's tier. Tapping
-  at random wins about 10% of the first tutorial levels and practically never after that
+  at random wins about 10% of the early puzzles and practically never after that
   (0.7% on average for normal levels, 0% for hard and super hard ones); a casual player wins about
   12% of normal levels, 4% of hard ones and almost never a super hard one. Levels are also tuned
   so the thinking doesn't end after the first taps (the random player is re-measured from a third
@@ -111,6 +113,8 @@ Every 5th level is **hard**, every 10th is **super hard**.
   hard ones and seldom a super hard one. On top of that the generator counts **critical decisions** — moments on the
   way to victory where a wrong box leads into a dead end: about six per normal level and eight or
   more on hard ones. Fewer queue columns, four slots and fences are extra difficulty levers.
+  Level 1 is authored separately: a 110-piece frog with three colors and five boxes. Every front
+  box starts collecting immediately, and every order is winnable. Campaign rebuilds preserve it.
 - **Pictures** — about 300 curated emoji from three open sets (Fluent, Twemoji and Noto, whose
   detailed scenes — cities at night, mountains, lighthouses, castles, fairgrounds — make the
   hardest levels), rasterized, reduced to 3–10 clean colors with k‑means in OKLab, cleaned of stray

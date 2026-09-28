@@ -212,26 +212,65 @@ export function paintGround(theme: WorldTheme, size = 1024, seed = 7): HTMLCanva
       break;
     }
     case 'sand': {
-      g.strokeStyle = hexA('#fff6dc', 0.5);
-      g.lineWidth = 3 * k;
-      for (let i = 0; i < 28; i++) {
-        const y0 = rng.next() * size;
-        const amp = rng.range(6, 14) * k;
-        const ph = rng.next() * 6;
-        g.beginPath();
-        for (let x = -10; x <= size + 10; x += 8) {
-          const y = y0 + Math.sin(x / (60 * k) + ph) * amp;
-          if (x === -10) g.moveTo(x, y);
-          else g.lineTo(x, y);
-        }
-        g.stroke();
+      // Short, shaded wind ridges instead of bright lines spanning the texture:
+      // full-width highlights read as water once the sunlight washes them out.
+      for (let i = 0; i < 32; i++) {
+        const x = rng.next() * size;
+        const y = rng.next() * size;
+        const length = rng.range(95, 230) * k;
+        const depth = rng.range(8, 21) * k;
+        const bend = rng.range(9, 27) * k;
+        const angle = rng.range(-0.42, -0.12);
+        wrap(size, x, y, length * 0.6, (px, py) => {
+          g.save();
+          g.translate(px, py);
+          g.rotate(angle);
+          const shade = g.createLinearGradient(0, -bend, 0, depth);
+          shade.addColorStop(0, hexA('#a78855', 0.22));
+          shade.addColorStop(0.5, hexA('#b59662', 0.11));
+          shade.addColorStop(1, hexA('#b59662', 0));
+          g.fillStyle = shade;
+          g.beginPath();
+          g.moveTo(-length / 2, 0);
+          g.bezierCurveTo(-length * 0.25, -bend, length * 0.18, -bend, length / 2, 0);
+          g.bezierCurveTo(length * 0.18, depth, -length * 0.2, depth, -length / 2, 0);
+          g.fill();
+          g.strokeStyle = hexA('#fff0cc', 0.32);
+          g.lineWidth = 1.8 * k;
+          g.lineCap = 'round';
+          g.beginPath();
+          g.moveTo(-length * 0.4, -1.5 * k);
+          g.bezierCurveTo(-length * 0.2, -bend - k, length * 0.13, -bend - k, length * 0.4, -1.5 * k);
+          g.stroke();
+          g.restore();
+        });
       }
-      scatter(size, rng, 9000, 2, (x, y) => {
-        g.fillStyle = rng.pick(gr.detail);
-        g.globalAlpha = rng.range(0.3, 0.8);
-        g.fillRect(x, y, 1.6 * k, 1.6 * k);
-      });
+      // Two grain scales survive texture minification on a phone: fine warm
+      // grains make the surface dry, sparse larger flecks keep it from blurring.
+      for (let i = 0; i < 31000; i++) {
+        const x = rng.next() * size;
+        const y = rng.next() * size;
+        const r = rng.range(0.65, 1.8) * k;
+        const color = rng.pick(gr.detail);
+        g.fillStyle = color;
+        g.globalAlpha = rng.range(0.2, 0.55);
+        wrap(size, x, y, r * 2, (px, py) => g.fillRect(px, py, r, r * 0.8));
+      }
+      for (let i = 0; i < 1900; i++) {
+        const x = rng.next() * size;
+        const y = rng.next() * size;
+        const r = rng.range(1.6, 3.1) * k;
+        const color = rng.pick(['#a98c5b', '#c0a675', '#ead3ab', '#f3e2c0']);
+        g.fillStyle = color;
+        g.globalAlpha = rng.range(0.22, 0.4);
+        wrap(size, x, y, r * 2, (px, py) => {
+          g.beginPath();
+          g.ellipse(px, py, r, r * 0.65, -0.25, 0, Math.PI * 2);
+          g.fill();
+        });
+      }
       g.globalAlpha = 1;
+      scatter(size, rng, 12, 12 * k, (x, y) => pebble(g, x, y, rng.range(3, 6) * k, rng.pick(['#b4a084', '#cfb89a', '#e3ceb0']), rng));
       scatter(size, rng, 16, 20 * k, (x, y) => {
         const r = rng.range(8, 13) * k;
         const rot = rng.next() * 6;

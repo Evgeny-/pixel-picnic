@@ -29,9 +29,12 @@ import {
   type MechanicId,
 } from '../core/progression';
 import type { LevelDef } from '../core/types';
-import { BOX_LOOKS, HAT_LOOKS, HOUSE_LOOKS, lookKey, type LookItem } from '../core/looks';
-import { lookPreview } from '../render/preview';
+import { openLooksShop, type ShopTab } from '../ui/LooksShop';
+import { openCreaturePicker } from '../ui/CreaturePicker';
+import type { HatId } from '../render/hats';
+import { isCreatureId } from '../core/creatures';
 import type { EmojiName } from '../ui/emoji.generated';
+import { perf } from '../render/PerformanceMonitor';
 
 const MECH_ICON: Record<MechanicId, EmojiName> = {
   hidden: 'red-question-mark',
@@ -94,7 +97,7 @@ export class App {
 
     this.map = new MapScreen(this.ui, {
       onPlay: (n) => this.play(n),
-      onShop: () => this.openLooksShop('house'),
+      onShop: () => this.openLooksShop('creature'),
       onSettings: () => this.openSettings(),
       onAlbum: () => this.openAlbum(),
       onDebug: () => this.openDebugList(),
@@ -116,7 +119,7 @@ export class App {
     );
     const unlock = () => audio.unlock();
     window.addEventListener('pointerdown', unlock, { capture: true });
-    window.addEventListener('resize', () => this.onResize());
+    window.addEventListener('resize', () => perf.task('window resize', () => this.onResize()));
     // Pick up new deployments: check when the tab comes back and every few minutes.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') void this.checkUpdate();
@@ -126,12 +129,12 @@ export class App {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.game && !dialogOpen()) this.openPause();
     });
-    this.stage.addEventListener('pointerdown', (e) => this.onStageTap(e));
+    this.stage.addEventListener('pointerdown', (e) => perf.task('box tap', () => this.onStageTap(e)));
     this.stage.addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse' || !this.game || dialogOpen()) return;
       const r = this.stage.getBoundingClientRect();
       const id = this.game.paused ? null : this.game.view.pickBox(e.clientX - r.left, e.clientY - r.top);
-      this.stage.style.cursor = id !== null && (this.game.grabMode || this.game.sim.canTake(id)) ? 'pointer' : '';
+      this.stage.style.cursor = id !== null && (this.game.grabMode || this.game.canSelectBox(id)) ? 'pointer' : '';
     });
     this.stage.addEventListener('pointerleave', () => { this.stage.style.cursor = ''; });
     // Dev helpers: ?reset, ?level=N (jump), ?boosters=K, ?coins=K, ?debug=1|0
@@ -150,6 +153,8 @@ export class App {
     if (lk?.[0]) this.save.looks.house = lk[0];
     if (lk?.[1]) this.save.looks.hat = lk[1];
     if (lk?.[2]) this.save.looks.box = lk[2];
+    const creature = q.get('creature');
+    if (isCreatureId(creature)) this.save.settings.creature = creature;
     const prog = Number(q.get('progress'));
     if (prog > 1) {
       for (let n = 1; n < prog; n++) this.save.stars[n] = this.save.stars[n] ?? (n % 4 === 0 ? 2 : 3);
@@ -176,8 +181,9 @@ export class App {
   private startDemo(maxMoves: number): void {
     let played = 0;
     let level = -1;
-    // Headless browsers may starve requestAnimationFrame: keep the demo moving with a timer.
-    setInterval(() => {
+    // Screenshot demos may need a timer when RAF is starved. Performance runs must use only
+    // the normal frame loop, otherwise a slow frame triggers an extra render and skews results.
+    if (!perf.enabled) setInterval(() => {
       if (this.game && performance.now() - this.last > 120) {
         this.last = performance.now();
         this.game.update(0.05, this.last / 1000);
@@ -192,7 +198,7 @@ export class App {
       }
       if (maxMoves && played >= maxMoves) return;
       const next = g.level.solution?.[played];
-      if (next !== undefined && g.sim.isQuiet() && g.takeBox(next)) played++;
+      if (next !== undefined && g.sim.isQuiet() && perf.task('recorded demo move', () => g.takeBox(next))) played++;
     }, 250);
   }
 
@@ -201,6 +207,7 @@ export class App {
   private mapData() {
     return {
       unlocked: this.save.level,
+      creature: this.save.settings.creature,
       stars: this.save.stars,
       coins: this.save.coins,
       total: this.levels.length,
@@ -271,6 +278,14 @@ export class App {
 
   async play(n: number): Promise<void> {
     closeAllDialogs();
+    if (!this.save.settings.creature) {
+      openCreaturePicker('ant', this.save.looks.hat as HatId, (creature) => {
+        this.save.settings.creature = creature;
+        writeSave(this.save);
+        void this.play(n);
+      }, () => this.showMap(), true);
+      return;
+    }
     const level = await getLevel(n);
     // Boosters that unlock at this level come with a small gift.
     const newBoosters = boostersUnlockedAt(n).filter((b) => !this.save.seen.includes('booster:' + b));
@@ -287,6 +302,7 @@ export class App {
     this.game?.dispose();
     this.hud?.destroy();
     const view = this.ensureView();
+    view.creature = this.save.settings.creature ?? 'ant';
     view.looks = { house: this.save.looks.house, hat: this.save.looks.hat, box: this.save.looks.box };
     this.stage.style.visibility = 'visible';
     const theme = themeForWorld(level.world);
@@ -297,6 +313,7 @@ export class App {
       onBooster: (b) => this.onBooster(b),
     });
     this.hud.setLevel(level.n, level.tier);
+    this.hud.setCreature(this.save.settings.creature ?? 'ant');
     this.hud.setProgress(0, 1);
     this.stopAuto();
     if (this.save.settings.debug) {
@@ -311,7 +328,7 @@ export class App {
     const ins = this.hud.insets();
     view.insets = { top: ins.top, bottom: ins.bottom, left: 0, right: 0 };
     // The HUD can grow after the font loads or the debug line wraps: keep the picture clear of it.
-    this.hud.observe(() => this.onResize());
+    this.hud.observe(() => perf.task('HUD resize', () => this.onResize()));
     this.rescued = false;
     if (import.meta.env.DEV) Object.assign(window, { app: this, audio });
     this.game = new Game(view, level, theme, {
@@ -340,9 +357,18 @@ export class App {
     this.stopLoop();
     this.last = performance.now();
     const loop = (now: number) => {
+      perf.setPaused(!this.game || this.game.paused);
+      perf.beginFrame(now);
+      this.view?.observeFrame(now - this.last, now, !this.game || this.game.paused || document.hidden);
       const dt = Math.min(0.05, (now - this.last) / 1000);
       this.last = now;
       this.game?.update(dt, now / 1000);
+      if (perf.enabled && this.game && this.view) perf.endFrame({
+        creature: this.view.creature, level: this.game.level.n, agents: this.view.ants.count,
+        calls: this.view.renderer.info.render.calls, triangles: this.view.renderer.info.render.triangles,
+        programs: this.view.renderer.info.programs?.length,
+        dpr: this.view.renderer.getPixelRatio(),
+      });
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -385,7 +411,7 @@ export class App {
     this.hud?.setSpeed(s);
   }
 
-  private toast(k: 'blocked' | 'frozen' | 'slots' | 'link' | 'nohint' | 'grab'): void {
+  private toast(k: 'blocked' | 'frozen' | 'slots' | 'link' | 'nohint' | 'grab' | 'queued' | 'unqueued'): void {
     const map = {
       blocked: 'toastBlocked',
       frozen: 'toastFrozen',
@@ -393,6 +419,8 @@ export class App {
       link: 'toastLink',
       nohint: 'toastNoHint',
       grab: 'toastGrab',
+      queued: 'toastQueued',
+      unqueued: 'toastUnqueued',
     } as const;
     let key: Parameters<typeof t>[0] = map[k];
     if (k === 'slots' && this.game && this.game.sim.freeSlots() === 1) key = 'toastLinkSlots';
@@ -405,7 +433,7 @@ export class App {
     if (!g || !hud) return;
     const y = Math.max(90, hud.insets().top + 4);
     if (this.tutorial === 1) {
-      // Point at the solver's first move: even level 1 has a box that would be a mistake.
+      // Point at a front box with immediate activity in the authored opening.
       const probe = g.sim.clone();
       const moves = probe.legalMoves();
       const exposed = probe.exposedCounts();
@@ -487,7 +515,7 @@ export class App {
   private spendBooster(b: BoosterId, fromStuck = false): boolean {
     const g = this.game;
     if (!g) return false;
-    const ok = g.use(b);
+    const ok = perf.task(`booster ${b}`, () => g.use(b));
     if (ok) {
       this.save.boosters[b]--;
       if (fromStuck) this.rescued = true;
@@ -497,121 +525,11 @@ export class App {
     return ok;
   }
 
-  /** Keep the shop open while its tabs, balance and item states change. */
-  private openLooksShop(tab: LookItem['kind'] | 'booster'): void {
-    const coins = h('p', { class: 'shop-coins', attrs: { 'aria-live': 'polite' } });
-    const tabs = h('div', { class: 'seg shop-tabs', attrs: { role: 'tablist', 'aria-label': t('shop') } });
-    const grid = h('div', { class: 'shop-grid', attrs: { id: 'shop-items', role: 'tabpanel' } });
-    const tabDefs: [typeof tab, string][] = [
-      ['house', t('shopHouses')], ['hat', t('shopAnts')], ['box', t('shopBoxes')], ['booster', t('shopBoosters')],
-    ];
-    const tabButtons = new Map<typeof tab, HTMLButtonElement>();
-    const scrollTop = new Map<typeof tab, number>();
-    let updates: (() => void)[] = [];
-    const refresh = () => {
-      coins.innerHTML = `${emoji('coin', 26)} ${this.save.coins}`;
-      for (const update of updates) update();
-    };
-    const savePurchase = () => {
-      writeSave(this.save);
-      refresh();
+  private openLooksShop(tab: ShopTab): void {
+    openLooksShop(this.save, tab, () => {
       this.map.refreshTop(this.save.coins);
-    };
-    const renderItems = () => {
-      grid.replaceChildren();
-      updates = [];
-      for (const [id, b] of tabButtons) {
-        b.classList.toggle('on', id === tab);
-        b.setAttribute('aria-selected', String(id === tab));
-        b.tabIndex = id === tab ? 0 : -1;
-      }
-      grid.setAttribute('aria-labelledby', `shop-tab-${tab}`);
-      if (tab === 'booster') {
-        for (const b of BOOSTERS) {
-          const price = h('span', { class: 'price' });
-          const card = h('button', { class: 'look-card' },
-            h('span', { class: 'look-pic booster-pic', html: boosterArt(b) }),
-            h('span', { class: 'nm', text: t(`booster_${b}`) }), price,
-          );
-          updates.push(() => { price.innerHTML = `×${this.save.boosters[b]} · ${emoji('coin', 18)} ${BOOSTER_PRICE[b]}`; });
-          card.addEventListener('click', () => {
-            if (this.save.coins < BOOSTER_PRICE[b]) {
-              audio.play('invalid');
-              toast(this.ui, t('notEnough'));
-              return;
-            }
-            this.save.coins -= BOOSTER_PRICE[b];
-            this.save.boosters[b]++;
-            audio.play('coin');
-            savePurchase();
-          });
-          grid.append(card);
-        }
-      } else {
-        const items = tab === 'house' ? HOUSE_LOOKS : tab === 'hat' ? HAT_LOOKS : BOX_LOOKS;
-        const looks = this.save.looks;
-        for (const item of items) {
-          const owned = () => item.price === 0 || looks.owned.includes(lookKey(item));
-          const price = h('span', { class: 'price' });
-          const card = h('button', { class: 'look-card' },
-            h('img', { class: 'look-pic', attrs: { src: lookPreview(item.kind, item.id), alt: '' } }),
-            h('span', { class: 'nm', text: loc(item.name) }), price,
-          );
-          updates.push(() => {
-            const worn = looks[item.kind] === item.id;
-            card.classList.toggle('worn', worn);
-            card.classList.toggle('owned', !worn && owned());
-            card.setAttribute('aria-pressed', String(worn));
-            price.innerHTML = worn ? `${lineIcon('check', 16)} ${t('worn')}`
-              : owned() ? t('wear') : `${emoji('coin', 18)} ${item.price}`;
-          });
-          card.addEventListener('click', () => {
-            if (looks[item.kind] === item.id) return;
-            if (!owned()) {
-              if (this.save.coins < item.price) {
-                audio.play('invalid');
-                toast(this.ui, t('notEnough'));
-                return;
-              }
-              this.save.coins -= item.price;
-              looks.owned.push(lookKey(item));
-              audio.play('unlock');
-              toast(this.ui, t('bought'));
-            } else audio.play('button');
-            looks[item.kind] = item.id;
-            savePurchase();
-          });
-          grid.append(card);
-        }
-      }
-      refresh();
-      grid.scrollTop = scrollTop.get(tab) ?? 0;
-    };
-    for (const [id, label] of tabDefs) {
-      const b = h('button', { text: label, attrs: { id: `shop-tab-${id}`, role: 'tab', 'aria-controls': 'shop-items' } });
-      b.addEventListener('click', () => {
-        if (tab === id) return;
-        scrollTop.set(tab, grid.scrollTop);
-        tab = id;
-        audio.play('button');
-        renderItems();
-      });
-      b.addEventListener('keydown', (e) => {
-        const index = tabDefs.findIndex(([key]) => key === id);
-        const next = e.key === 'ArrowRight' ? (index + 1) % tabDefs.length
-          : e.key === 'ArrowLeft' ? (index + tabDefs.length - 1) % tabDefs.length
-            : e.key === 'Home' ? 0 : e.key === 'End' ? tabDefs.length - 1 : -1;
-        if (next < 0) return;
-        e.preventDefault();
-        const button = tabButtons.get(tabDefs[next][0])!;
-        button.focus();
-        button.click();
-      });
-      tabButtons.set(id, b);
-      tabs.append(b);
-    }
-    openDialog({ title: t('shop'), head: 'purple', body: [coins, tabs, grid], onClose: () => undefined, cls: 'wide shop-dialog' });
-    renderItems();
+      this.map.setCreature(this.save.settings.creature ?? 'ant');
+    }, this.ui);
   }
 
   private openShop(b: BoosterId, fromStuck = false): void {
@@ -808,7 +726,7 @@ export class App {
     this.autoTimer = window.setInterval(() => {
       if (this.game !== g) return this.stopAuto();
       if (dialogOpen()) return;
-      const r = g.autoStep();
+      const r = perf.task('debug auto solver', () => g.autoStep());
       if (r === 'stuck') {
         this.stopAuto();
         toast(this.ui, t('noSolution'), 2500);

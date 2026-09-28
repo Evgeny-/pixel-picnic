@@ -1,5 +1,6 @@
 import type { BoosterId } from '../game/Game';
 import type { Lang } from './i18n';
+import { isCreatureId, type CreatureId } from '../core/creatures';
 
 export interface Settings {
   music: number;
@@ -10,6 +11,8 @@ export interface Settings {
   debug: boolean;
   /** Night mode: follow the system (auto), always on or always off. */
   night?: 'auto' | 'on' | 'off';
+  /** Absent until the free companion picker has been seen. */
+  creature?: CreatureId;
 }
 
 export interface SaveData {
@@ -58,7 +61,7 @@ export function loadSave(): SaveData {
       ...base,
       ...d,
       boosters: { ...base.boosters, ...(d.boosters ?? {}) },
-      settings: { ...base.settings, ...(d.settings ?? {}) },
+      settings: { ...base.settings, ...(d.settings ?? {}), creature: isCreatureId(d.settings?.creature) ? d.settings.creature : undefined },
       looks: { ...base.looks, ...(d.looks ?? {}) },
       stars: d.stars ?? {},
       seen: d.seen ?? [],

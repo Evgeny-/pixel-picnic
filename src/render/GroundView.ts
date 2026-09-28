@@ -67,6 +67,7 @@ export class GroundView {
   private applyNight(): void {
     this.mat.color.set(this.night ? '#4b5572' : '#ffffff');
     this.dappleMat.opacity = this.night ? 0 : this.dappleBase;
+    for (const dapple of this.dapples) dapple.visible = !this.night;
   }
 
   setLayout(l: Layout): void {

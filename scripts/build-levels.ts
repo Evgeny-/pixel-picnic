@@ -15,6 +15,7 @@ import { phaseDifficulty, plannerRate } from '../src/core/solver';
 import { buildFences, LEVELS_PER_WORLD, planLevel, shapeFor, worldOf } from '../src/core/progression';
 import { encodeCells, tierForLevel, type LevelDef, type PictureDef } from '../src/core/types';
 import { Rng, hashString } from '../src/core/rng';
+import { createIntroLevel } from './lib/intro-level';
 
 const THEME_ORDER = ['meadow', 'forest', 'sea', 'sweets', 'space', 'winter', 'fantasy'] as const;
 const COUNT = Number(process.argv[2] ?? THEME_ORDER.length * LEVELS_PER_WORLD);
@@ -156,6 +157,14 @@ for (let n = 1; n <= COUNT; n++) {
   if (ONLY && !ONLY.has(n)) continue;
   if (REBUILD && !REBUILD.has(n) && existing[n - 1]) {
     levels.push(existing[n - 1]);
+    continue;
+  }
+  // The first level teaches the interaction; difficulty tuning would reintroduce idle taps.
+  if (n === 1) {
+    const intro = createIntroLevel();
+    levels.push(intro);
+    used.add(intro.picture.id);
+    console.log('#  1 intro     frog 12x12, 110 pieces, 5 boxes');
     continue;
   }
   const tier = tierForLevel(n);

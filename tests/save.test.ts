@@ -33,3 +33,29 @@ describe('box cosmetics in saves', () => {
     expect(restored.looks.owned).toEqual(['box:basket']);
   });
 });
+
+describe('companion selection in saves', () => {
+  it('restores the chosen companion and keeps paid unlocks with the existing cosmetics', () => {
+    savedGame({
+      v: 1, level: 42, coins: 260, stars: { 35: 3 },
+      settings: { creature: 'rabbit', night: 'on' },
+      looks: { hat: 'flower', owned: ['hat:flower', 'creature:rabbit'] },
+    });
+    const save = loadSave();
+    writeSave(save);
+    const restored = loadSave();
+    expect(restored.settings.creature).toBe('rabbit');
+    expect(restored.looks.hat).toBe('flower');
+    expect(restored.looks.owned).toEqual(['hat:flower', 'creature:rabbit']);
+    expect([restored.level, restored.coins, restored.stars[35]]).toEqual([42, 260, 3]);
+  });
+
+  it('shows the initial choice for old or invalid companion settings', () => {
+    savedGame({ settings: { music: 0.2, creature: 'unknown' } });
+    const save = loadSave();
+    expect(save.settings.creature).toBeUndefined();
+    expect(save.settings.music).toBe(0.2);
+    savedGame({});
+    expect(loadSave().settings.creature).toBeUndefined();
+  });
+});

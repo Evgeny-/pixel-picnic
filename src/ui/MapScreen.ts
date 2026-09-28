@@ -8,9 +8,12 @@ import { LEVELS_PER_WORLD, worldOf } from '../core/progression';
 import { tierForLevel, type LevelStats, type PictureDef } from '../core/types';
 import type { EmojiName } from './emoji.generated';
 import { audio } from '../audio/audio';
+import { creaturePreview } from '../render/preview';
+import type { CreatureId } from '../core/creatures';
 
 export interface MapData {
   unlocked: number;
+  creature?: CreatureId;
   stars: Record<number, number>;
   coins: number;
   total: number;
@@ -104,6 +107,16 @@ export class MapScreen {
     const dock = h('div', { class: 'play-dock' }, this.playBtn);
     this.el.append(this.scroll, top, dock);
     root.append(this.el);
+  }
+
+  private creatureMarker(id: CreatureId): HTMLElement {
+    return id === 'ant' ? h('span', { html: emoji('ant', 50) })
+      : h('img', { attrs: { src: creaturePreview(id), alt: '', width: '60', height: '60' } });
+  }
+
+  setCreature(id: CreatureId): void {
+    if (this.data) this.data.creature = id;
+    this.inner.querySelector('.map-ant')?.replaceChildren(this.creatureMarker(id));
   }
 
   show(data: MapData): void {
@@ -256,7 +269,8 @@ export class MapScreen {
       });
       inner.append(node);
       if (current) {
-        const ant = h('div', { class: 'map-ant', html: emoji('ant', 50) });
+        const ant = h('div', { class: 'map-ant' });
+        ant.append(this.creatureMarker(d.creature ?? 'ant'));
         ant.style.left = this.nodeX(n) + 'px';
         ant.style.top = this.nodeY(n) + 'px';
         inner.append(ant);

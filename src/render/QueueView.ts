@@ -5,6 +5,9 @@ import { queuePos, type Layout } from './layout';
 import { LabelTexture, mysteryTexture } from './textures';
 import { roundedRectShape } from './BoardView';
 import { BOX_H, BOX_LABEL_Z, BoxStyle } from './boxStyle';
+import { QueueLinks } from './QueueLinks';
+import { QueueBadge } from './QueueBadge';
+import { DigitAtlas, DigitLabel, type DigitStyle } from './DigitLabel';
 
 const MYSTERY = new THREE.Color('#9b94b3');
 const DIM = new THREE.Color('#8f8a7c');
@@ -15,7 +18,8 @@ interface BoxVis {
   group: THREE.Group;
   body: THREE.Mesh;
   mat: THREE.MeshStandardMaterial;
-  label: LabelTexture;
+  label: DigitLabel;
+  labelStyle: number;
   labelMesh: THREE.Mesh;
   ice: THREE.Mesh | null;
   color: THREE.Color;
@@ -36,24 +40,20 @@ interface BoxVis {
   row: number;
 }
 
-interface LinkVis {
-  a: number;
-  b: number;
-  /** A short golden chain between the two boxes. */
-  chain: THREE.InstancedMesh;
-}
-
-const CHAIN_MAX = 14;
-const AXIS_X = new THREE.Vector3(1, 0, 0);
-
 /** Queue columns, slot tray and the ant boxes themselves. */
 export class QueueView {
   readonly group = new THREE.Group();
   private boxes = new Map<number, BoxVis>();
-  private links: LinkVis[] = [];
+  private readonly links: QueueLinks;
+  private readonly pendingBadges = new Map<number, QueueBadge>();
   private readonly boxStyle: BoxStyle;
   private readonly iceGeo = new RoundedBoxGeometry(1.12, BOX_H * 1.25, 1.12, 2, 0.16);
   private readonly labelGeo = new THREE.PlaneGeometry(1, 1);
+  private readonly digits: DigitAtlas;
+  private readonly digitMat: THREE.MeshStandardMaterial;
+  private readonly digitStyles: number[];
+  private readonly mysteryDigitStyle: number;
+  private readonly frozenDigitStyle: number;
   private readonly iceMat = new THREE.MeshStandardMaterial({
     color: '#cfefff',
     transparent: true,
@@ -63,14 +63,6 @@ export class QueueView {
     envMapIntensity: 1.6,
     depthWrite: false,
   });
-  private readonly linkMat = new THREE.MeshStandardMaterial({ color: '#e0b04a', roughness: 0.28, metalness: 0.85, envMapIntensity: 1.4 });
-  private readonly linkGeo = new THREE.TorusGeometry(0.075, 0.024, 8, 18);
-  private readonly lq = new THREE.Quaternion();
-  private readonly lq2 = new THREE.Quaternion();
-  private readonly lm = new THREE.Matrix4();
-  private readonly ls = new THREE.Vector3();
-  private readonly lp = new THREE.Vector3();
-  private readonly ldir = new THREE.Vector3();
   private readonly mysteryTex = mysteryTexture();
   private tray: THREE.Group | null = null;
   private readonly trayMat = new THREE.MeshStandardMaterial({ color: '#efd3a0', roughness: 0.62 });
@@ -80,7 +72,6 @@ export class QueueView {
   private sim: Sim;
   private colors: THREE.Color[];
   private readonly tmp = new THREE.Vector3();
-  private readonly tmp2 = new THREE.Vector3();
   private slotPulse = 0;
   /** "+3" under a column: how many boxes are still hidden below the visible rows. */
   private more: { mesh: THREE.Mesh; label: LabelTexture }[] = [];
@@ -93,6 +84,17 @@ export class QueueView {
     this.hint = hint;
     this.sim = sim;
     this.colors = palette.map((c) => new THREE.Color(c));
+    const styles = this.colors.map(labelStyle);
+    const mysteryStyle = labelStyle(MYSTERY);
+    const frozenStyle = { fill: '#eefaff', stroke: '#3d7fae', shadow: 'rgba(30,70,110,0.4)' };
+    this.digits = new DigitAtlas([...styles, mysteryStyle, frozenStyle]);
+    this.digitStyles = styles.map((style) => this.digits.styleId(style));
+    this.mysteryDigitStyle = this.digits.styleId(mysteryStyle);
+    this.frozenDigitStyle = this.digits.styleId(frozenStyle);
+    this.digitMat = new THREE.MeshStandardMaterial({
+      map: this.digits.texture, transparent: true, depthWrite: false,
+      roughness: 0.45, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2,
+    });
     for (let id = 0; id < sim.boxIds; id++) {
       if (sim.boxColor(id) < 0) continue;
       this.boxes.set(id, this.makeBox(id));
@@ -108,20 +110,7 @@ export class QueueView {
       this.group.add(mesh);
       this.more.push({ mesh, label });
     }
-    const seen = new Set<number>();
-    for (let id = 0; id < sim.boxIds; id++) {
-      const l = sim.boxLink(id);
-      if (l < 0 || seen.has(l)) continue;
-      seen.add(l);
-      const g = sim.groupOf(id);
-      for (let k = 0; k + 1 < g.length; k++) {
-        const chain = new THREE.InstancedMesh(this.linkGeo, this.linkMat, CHAIN_MAX);
-        chain.castShadow = true;
-        chain.frustumCulled = false;
-        this.group.add(chain);
-        this.links.push({ a: g[k], b: g[k + 1], chain });
-      }
-    }
+    this.links = new QueueLinks(sim, this.boxes, this.group);
   }
 
   private makeBox(id: number): BoxVis {
@@ -131,18 +120,9 @@ export class QueueView {
     const mat = body.material;
     body.userData.boxId = id;
     group.add(body);
-    const label = new LabelTexture(128);
+    const label = new DigitLabel(this.digits);
     // Lit like the box itself, so the number reads as part of the lid.
-    const labelMat = new THREE.MeshStandardMaterial({
-      map: label.texture,
-      transparent: true,
-      depthWrite: false,
-      roughness: 0.45,
-      metalness: 0,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-    });
-    const labelMesh = new THREE.Mesh(this.labelGeo, labelMat);
+    const labelMesh = new THREE.Mesh(label.geometry, this.digitMat);
     labelMesh.renderOrder = 5;
     group.add(labelMesh);
     let ice: THREE.Mesh | null = null;
@@ -154,7 +134,7 @@ export class QueueView {
     }
     this.group.add(group);
     return {
-      id, group, body, mat, label, labelMesh, ice, color,
+      id, group, body, mat, label, labelStyle: this.digitStyles[this.sim.boxColor(id)], labelMesh, ice, color,
       hiddenShown: false, where: 'queue',
       from: new THREE.Vector3(), to: new THREE.Vector3(), t: 1, dur: 0.001, arc: 0,
       shake: 0, flip: 0, pop: 0, bump: 0, hint: 0, fade: 1, row: 0,
@@ -175,12 +155,13 @@ export class QueueView {
   setLayout(l: Layout): void {
     this.layout = l;
     this.buildTray(l);
-    // label faces the camera
+    // Keep printed numbers at their font's normal proportions after the camera's tilt.
     for (const b of this.boxes.values()) {
       // Printed on the top face like a sticker: never clipped by the box itself.
       b.labelMesh.rotation.set(-Math.PI / 2, 0, 0);
-      b.labelMesh.scale.setScalar(0.92);
+      b.labelMesh.scale.set(0.92, 0.92 / Math.cos(l.tilt), 0.92);
     }
+    for (const badge of this.pendingBadges.values()) badge.setTilt(l.tilt);
     this.more.forEach((m, c) => {
       // Just past the last visible row (rows grow downwards in portrait, upwards in landscape,
       // where the label has to clear the boxes' height).
@@ -295,6 +276,7 @@ export class QueueView {
   refreshLabels(): void {
     for (const b of this.boxes.values()) this.refreshLabel(b);
     if (!this.layout) return;
+    this.links.sync(this.sim, this.layout, (column) => this.columnX(column));
     this.more.forEach((m, c) => {
       const hidden = Math.max(0, this.sim.columns[c].length - this.layout.queueRowsVisible);
       m.mesh.visible = hidden > 0;
@@ -310,10 +292,11 @@ export class QueueView {
     const frozen = this.sim.isFrozen(b.id);
     if (hidden) {
       b.mat.color.copy(MYSTERY);
+      b.mat.emissive.set(0);
       b.mat.map = this.mysteryTex;
       b.mat.needsUpdate = b.hiddenShown === false;
       b.hiddenShown = true;
-      b.label.draw('?', labelStyle(MYSTERY));
+      b.label.draw('?', this.mysteryDigitStyle);
     } else {
       if (b.hiddenShown) {
         b.hiddenShown = false;
@@ -322,12 +305,13 @@ export class QueueView {
         b.flip = 1;
       }
       b.mat.color.copy(b.color);
-      if (frozen) b.label.draw(String(this.sim.frozenLeft(b.id)), { fill: '#eefaff', stroke: '#3d7fae', shadow: 'rgba(30,70,110,0.4)' });
+      b.mat.emissive.copy(b.color);
+      if (frozen) b.label.draw(String(this.sim.frozenLeft(b.id)), this.frozenDigitStyle);
       else {
         // A finished box keeps showing 0 while it pops (its slot is already empty).
         const sl = this.sim.slots.find((s) => s?.box === b.id);
         const n = sl ? sl.left : this.sim.boxWhere[b.id] === Where.Done ? 0 : this.sim.boxCount(b.id);
-        b.label.draw(String(n), labelStyle(b.color));
+        b.label.draw(String(n), b.labelStyle);
       }
     }
     if (b.ice && !frozen && b.ice.visible) {
@@ -357,6 +341,25 @@ export class QueueView {
 
   setHint(id: number | null): void {
     for (const b of this.boxes.values()) b.hint = b.id === id ? Math.max(b.hint, 0.001) : 0;
+  }
+
+  /** Numbered plan markers live outside the count, at the opposite corner to chain labels. */
+  setPending(positions: ReadonlyMap<number, number>): void {
+    for (const badge of this.pendingBadges.values()) badge.mesh.visible = false;
+    for (const [id, position] of positions) {
+      const box = this.boxes.get(id);
+      if (!box) continue;
+      let badge = this.pendingBadges.get(id);
+      if (!badge) {
+        badge = new QueueBadge();
+        badge.setTilt(this.layout.tilt);
+        badge.mesh.position.set(-0.37, BOX_H + 0.075, -0.37);
+        box.group.add(badge.mesh);
+        this.pendingBadges.set(id, badge);
+      }
+      badge.draw(String(position));
+      badge.mesh.visible = true;
+    }
   }
 
   pulseSlots(): void {
@@ -443,7 +446,10 @@ export class QueueView {
       b.body.position.x = offX;
       b.labelMesh.position.set(offX, BOX_H + 0.012, BOX_LABEL_Z);
       b.labelMesh.visible = f > 0.75;
-      if (!b.hiddenShown) b.mat.color.copy(b.color).lerp(DIM, (1 - f) * 0.9);
+      if (!b.hiddenShown) {
+        b.mat.color.copy(b.color).lerp(DIM, (1 - f) * 0.9);
+        b.mat.emissive.copy(b.mat.color);
+      }
       if (b.flip > 0) {
         b.flip = Math.max(0, b.flip - dt * 2.8);
         b.body.rotation.x = (1 - easeOutCubic(1 - b.flip)) * Math.PI * 2 * (b.flip > 0 ? 1 : 0);
@@ -452,7 +458,7 @@ export class QueueView {
         b.ice.rotation.y = Math.sin(time * 1.3 + b.id) * 0.02;
       }
     }
-    for (const lk of this.links) this.updateChain(lk, s);
+    this.links.update(s);
     if (this.slotPulse > 0) {
       this.slotPulse = Math.max(0, this.slotPulse - dt * 0.7);
       const k = Math.sin(this.slotPulse * Math.PI * 4) * this.slotPulse;
@@ -460,44 +466,9 @@ export class QueueView {
     }
   }
 
-  /** Lay the chain links from the side of one box to the side of the other, sagging a little. */
-  private updateChain(lk: LinkVis, s: number): void {
-    const a = this.boxes.get(lk.a)!;
-    const b = this.boxes.get(lk.b)!;
-    const vis = a.group.visible && b.group.visible && a.where !== 'gone' && b.where !== 'gone' && a.fade > 0.3 && b.fade > 0.3;
-    lk.chain.visible = vis;
-    if (!vis) return;
-    const pa = this.tmp.copy(a.group.position);
-    const pb = this.tmp2.copy(b.group.position);
-    const dir = this.ldir.subVectors(pb, pa).setY(0);
-    const centers = dir.length();
-    if (centers < 1e-4) {
-      lk.chain.count = 0;
-      return;
-    }
-    dir.divideScalar(centers);
-    // Start and end just inside the facing sides, at 55% of the box height.
-    const half = s * 0.5 * Math.min(1 / Math.max(Math.abs(dir.x), 1e-3), 1 / Math.max(Math.abs(dir.z), 1e-3), 1.4) - 0.05 * s;
-    const y0 = pa.y + BOX_H * s * 0.55;
-    const y1 = pb.y + BOX_H * s * 0.55;
-    const len = Math.max(0.05, centers - half * 2);
-    const n = Math.max(2, Math.min(CHAIN_MAX, Math.round(len / (0.13 * s)) + 1));
-    this.lq.setFromUnitVectors(AXIS_X, dir);
-    for (let i = 0; i < n; i++) {
-      const t = n === 1 ? 0.5 : i / (n - 1);
-      const d = half + len * t;
-      const sag = Math.sin(t * Math.PI) * Math.min(0.12, len * 0.18);
-      this.ls.set(pa.x + dir.x * d, y0 + (y1 - y0) * t - sag, pa.z + dir.z * d);
-      this.lq2.setFromAxisAngle(AXIS_X, i % 2 ? Math.PI / 2 : 0).premultiply(this.lq);
-      this.lm.compose(this.ls, this.lq2, this.lp.set(1.45 * s, s, s));
-      lk.chain.setMatrixAt(i, this.lm);
-    }
-    lk.chain.count = n;
-    lk.chain.instanceMatrix.needsUpdate = true;
-  }
-
   dispose(): void {
-    for (const lk of this.links) lk.chain.dispose();
+    this.links.dispose();
+    for (const badge of this.pendingBadges.values()) badge.dispose();
     for (const m of this.more) {
       m.label.dispose();
       (m.mesh.material as THREE.Material).dispose();
@@ -505,14 +476,13 @@ export class QueueView {
     for (const b of this.boxes.values()) {
       b.mat.dispose();
       b.label.dispose();
-      (b.labelMesh.material as THREE.Material).dispose();
     }
+    this.digitMat.dispose();
+    this.digits.dispose();
     this.boxStyle.dispose();
     this.iceGeo.dispose();
     this.labelGeo.dispose();
     this.iceMat.dispose();
-    this.linkMat.dispose();
-    this.linkGeo.dispose();
     this.mysteryTex.dispose();
     this.trayMat.dispose();
     this.padMat.dispose();
@@ -525,7 +495,7 @@ function easeOutCubic(t: number): number {
 }
 
 /** Number colors derived from the box color: a light tint, a darker rim and a soft shadow. */
-function labelStyle(c: THREE.Color): { fill: string; stroke: string; shadow: string } {
+function labelStyle(c: THREE.Color): DigitStyle {
   const hsl = { h: 0, s: 0, l: 0 };
   c.getHSL(hsl, THREE.SRGBColorSpace);
   const h = Math.round(hsl.h * 360);

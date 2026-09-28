@@ -78,7 +78,8 @@ export class BoxStyle {
   constructor(skin: string) {
     const p = new Parts();
     this.roughness = skin === 'metal' ? 0.28 : skin === 'crate' || skin === 'basket' ? 0.6 : 0.38;
-    this.metalness = skin === 'metal' ? 0.22 : 0;
+    // The coloured surface is enamel; only its separate trim uses a metal material.
+    this.metalness = 0;
     if (skin === 'crate') this.crate(p);
     else if (skin === 'basket') this.basket(p);
     else if (skin === 'metal') this.metal(p);
@@ -214,6 +215,8 @@ export class BoxStyle {
   createBody(color: THREE.ColorRepresentation): THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> {
     const body = new THREE.Mesh(this.body, new THREE.MeshStandardMaterial({
       color, roughness: this.roughness, metalness: this.metalness, envMapIntensity: 1,
+      // A little of its own colour keeps the broad shaded bevels readable beside tiny pixels.
+      emissive: color, emissiveIntensity: 0.1,
     }));
     body.position.y = BOX_H / 2;
     body.castShadow = body.receiveShadow = true;

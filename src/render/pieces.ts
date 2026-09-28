@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { PieceShape } from '../core/types';
 
 /** Height of a piece relative to the cell size (the footprint is about one cell). */
@@ -28,11 +29,7 @@ function faceted(geo: THREE.BufferGeometry): THREE.BufferGeometry {
   return flat;
 }
 
-/**
- * Geometry of one picture piece, centered on the origin, about 1 cell wide and PIECE_H tall.
- * `small` uses fewer segments (pieces carried by ants).
- */
-export function pieceGeometry(shape: PieceShape, small = false): THREE.BufferGeometry {
+function createPieceShape(shape: PieceShape, small: boolean): THREE.BufferGeometry {
   switch (shape) {
     case 'coin':
       return lathePiece(0.46, small ? 12 : 18, 0.08);
@@ -50,6 +47,46 @@ export function pieceGeometry(shape: PieceShape, small = false): THREE.BufferGeo
     default:
       return new RoundedBoxGeometry(0.94, PIECE_H, 0.94, 1, 0.14);
   }
+}
+
+/**
+ * Index identical position/normal pairs without smoothing bevels or faceted edges.
+ * These pieces use only material/instance color (BoardView and carried pieces),
+ * so UV seams do not need their own vertices. Keep even tiny seam components and
+ * signed zero exact: mergeVertices' tolerance alone can collapse those values.
+ */
+function indexPiece(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  geometry.deleteAttribute('uv');
+  const position = geometry.getAttribute('position').array as Float32Array;
+  const normal = geometry.getAttribute('normal').array as Float32Array;
+  const positionBits = new Uint32Array(position.buffer, position.byteOffset, position.length);
+  const normalBits = new Uint32Array(normal.buffer, normal.byteOffset, normal.length);
+  const exactIds = new Float32Array(position.length / 3);
+  const ids = new Map<string, number>();
+  for (let i = 0; i < exactIds.length; i++) {
+    const p = i * 3;
+    const key = `${positionBits[p]},${positionBits[p + 1]},${positionBits[p + 2]},${normalBits[p]},${normalBits[p + 1]},${normalBits[p + 2]}`;
+    let id = ids.get(key);
+    if (id === undefined) {
+      id = ids.size;
+      ids.set(key, id);
+    }
+    exactIds[i] = id;
+  }
+  geometry.setAttribute('_exactMergeId', new THREE.Float32BufferAttribute(exactIds, 1));
+  const indexed = mergeVertices(geometry);
+  indexed.deleteAttribute('_exactMergeId');
+  geometry.dispose();
+  return indexed;
+}
+
+/**
+ * Geometry of one picture piece, centered on the origin, about 1 cell wide and PIECE_H tall.
+ * `small` uses fewer segments (pieces carried by animals). Indexed vertices avoid
+ * repeating identical vertex-shader work for every triangle of every instance.
+ */
+export function pieceGeometry(shape: PieceShape, small = false): THREE.BufferGeometry {
+  return indexPiece(createPieceShape(shape, small));
 }
 
 /** Surface of the pieces: candies and gems are glossier than wooden cubes. */

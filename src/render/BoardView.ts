@@ -112,6 +112,7 @@ export class BoardView {
     this.colors = palette.map((c) => new THREE.Color(c));
     // Pieces are small on screen: low segment counts keep the triangle budget down.
     this.cubes = new THREE.InstancedMesh(pieceGeometry(shape), pieceMaterial(shape), Math.max(1, cells.length));
+    this.cubes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.cubes.castShadow = true;
     this.cubes.receiveShadow = true;
     this.cubes.count = cells.length;
@@ -319,6 +320,7 @@ export class BoardView {
     this.sc.set(s, s, s);
     this.m4.compose(this.v, this.q, this.sc);
     this.cubes.setMatrixAt(inst, this.m4);
+    this.cubes.instanceMatrix.addUpdateRange(inst * 16, 16);
   }
 
   isPresent(cell: number): boolean {

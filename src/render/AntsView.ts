@@ -1,84 +1,18 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Sim } from '../core/sim';
 import type { PieceShape } from '../core/types';
 import { pieceGeometry, pieceMaterial } from './pieces';
 import { hatGeometry, type HatId } from './hats';
 import type { Layout } from './layout';
 import type { BoardView } from './BoardView';
+import { BoardPathPlanner } from './BoardPathPlanner';
+import { CreatureGrounding } from './CreatureGrounding';
+import { createCreatureRig, type CreatureRig } from './creatureModel';
+import { CREATURES, type CreatureId } from '../core/creatures';
+import { perf } from './PerformanceMonitor';
+export { antModel } from './creatureModel';
 
 const MAX_ANTS = 700;
-const LEGS = 6;
-
-/** Ant parts in local space: forward = +Z, up = +Y, total length ~1. */
-function buildBodyGeometry(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const ell = (rx: number, ry: number, rz: number, x: number, y: number, z: number, seg = 12) => {
-    const g = new THREE.SphereGeometry(1, seg, Math.round(seg * 0.75));
-    g.scale(rx, ry, rz);
-    g.translate(x, y, z);
-    parts.push(g);
-  };
-  ell(0.25, 0.21, 0.31, 0, 0.27, -0.33); // abdomen
-  ell(0.075, 0.075, 0.09, 0, 0.23, -0.05, 8); // petiole
-  ell(0.13, 0.12, 0.17, 0, 0.25, 0.08, 12); // thorax
-  ell(0.22, 0.2, 0.21, 0, 0.33, 0.33); // head
-  for (const s of [-1, 1]) {
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(s * 0.07, 0.47, 0.38),
-      new THREE.Vector3(s * 0.13, 0.66, 0.43),
-      new THREE.Vector3(s * 0.22, 0.72, 0.6),
-    ]);
-    parts.push(new THREE.TubeGeometry(curve, 6, 0.022, 4, false));
-    ell(0.045, 0.045, 0.045, s * 0.22, 0.72, 0.6, 8);
-  }
-  const merged = mergeGeometries(parts.map((p) => p.toNonIndexed()), false)!;
-  merged.computeVertexNormals();
-  return merged;
-}
-
-function buildEyes(r: number, z: number, y: number, x: number): THREE.BufferGeometry {
-  const a = new THREE.SphereGeometry(r, 8, 6);
-  a.translate(-x, y, z);
-  const b = new THREE.SphereGeometry(r, 8, 6);
-  b.translate(x, y, z);
-  return mergeGeometries([a, b], false)!;
-}
-
-function buildLeg(): THREE.BufferGeometry {
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0.17, 0.09, 0),
-    new THREE.Vector3(0.3, 0.02, 0),
-    new THREE.Vector3(0.36, -0.2, 0),
-  ]);
-  return new THREE.TubeGeometry(curve, 6, 0.024, 4, false);
-}
-
-/** A single standing ant as ordinary meshes (for shop previews), optionally with a hat. */
-export function antModel(color: string, hat: HatId = 'none'): THREE.Group {
-  const g = new THREE.Group();
-  const body = new THREE.Color(color);
-  const hsl = { h: 0, s: 0, l: 0 };
-  body.getHSL(hsl);
-  const legColor = new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.9), Math.max(0.03, hsl.l * 0.45));
-  g.add(new THREE.Mesh(buildBodyGeometry(), new THREE.MeshStandardMaterial({ color: body, roughness: 0.32 })));
-  g.add(new THREE.Mesh(buildEyes(0.085, 0.47, 0.4, 0.1), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.25 })));
-  g.add(new THREE.Mesh(buildEyes(0.048, 0.535, 0.41, 0.105), new THREE.MeshStandardMaterial({ color: '#15101f', roughness: 0.2 })));
-  const legGeo = buildLeg();
-  const legMat = new THREE.MeshStandardMaterial({ color: legColor, roughness: 0.5 });
-  for (let k = 0; k < LEGS; k++) {
-    const side = k < 3 ? -1 : 1;
-    const pair = k % 3;
-    const leg = new THREE.Mesh(legGeo, legMat);
-    leg.position.set(side * 0.08, 0.22, HIP_Z[pair]);
-    leg.rotation.set(0, (side < 0 ? Math.PI : 0) - side * LEG_YAW[pair], 0);
-    g.add(leg);
-  }
-  const hatGeo = hatGeometry(hat);
-  if (hatGeo) g.add(new THREE.Mesh(hatGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide })));
-  return g;
-}
 
 export interface AntCallbacks {
   onPick(cell: number): void;
@@ -115,8 +49,6 @@ interface Ant {
   delay: number;
 }
 
-const HIP_Z = [0.15, 0.07, -0.01];
-const LEG_YAW = [0.55, 0, -0.55];
 
 /** Hundreds of instanced cartoon ants walking between slots, the picture and the nest. */
 export class AntsView {
@@ -126,6 +58,11 @@ export class AntsView {
   private pupils: THREE.InstancedMesh;
   private legs: THREE.InstancedMesh;
   private cubes: THREE.InstancedMesh;
+  private details: THREE.InstancedMesh | null = null;
+  private tail: THREE.InstancedMesh | null = null;
+  private rig: CreatureRig;
+  private grounding: CreatureGrounding;
+  private creature: CreatureId;
   private ants: Ant[] = [];
   private palette: THREE.Color[];
   private legColors: THREE.Color[];
@@ -143,8 +80,7 @@ export class AntsView {
   private antSize = 0.42;
   private rect = { x0: 0, x1: 0, z0: 0, z1: 0, ix0: 0, ix1: 0, iz0: 0, iz1: 0, rim: 0.2 };
   private sim: Sim;
-  private bfsDist = new Int32Array(0);
-  private bfsPrev = new Int32Array(0);
+  private pathPlanner = new BoardPathPlanner();
   /** Cubes the rules have already released for pickup. */
   private ready = new Set<number>();
   /** The ants' house: an obstacle to walk around, and the doorway they run into. */
@@ -154,33 +90,39 @@ export class AntsView {
   /** The accessory every ant wears (bought in the shop), if any. */
   private hat: THREE.InstancedMesh | null = null;
 
-  constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks, shape: PieceShape = 'cube', hat: HatId = 'none') {
+  constructor(palette: string[], board: BoardView, sim: Sim, cb: AntCallbacks, shape: PieceShape = 'cube', hat: HatId = 'none', creature: CreatureId = 'ant') {
+    this.rig = createCreatureRig(creature);
+    this.grounding = new CreatureGrounding(this.rig);
+    this.creature = creature;
     this.board = board;
     this.sim = sim;
     this.cb = cb;
-    this.palette = palette.map((c) => new THREE.Color(c));
+    const naturalColor = CREATURES.find((item) => item.id === creature)!.color;
+    this.palette = palette.map((c) => new THREE.Color(creature === 'ant' ? c : naturalColor));
     this.legColors = this.palette.map((c) => {
       const hsl = { h: 0, s: 0, l: 0 };
       c.getHSL(hsl);
-      return new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.9), Math.max(0.03, hsl.l * 0.45));
+      return new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.9), Math.max(0.03, hsl.l * (creature === 'ant' ? 0.45 : 0.75)));
     });
-    const bodyMat = new THREE.MeshStandardMaterial({ roughness: 0.32, metalness: 0, envMapIntensity: 1.1 });
-    this.body = new THREE.InstancedMesh(buildBodyGeometry(), bodyMat, MAX_ANTS);
+    const matte = { roughness: 0.96, metalness: 0, envMapIntensity: 0.12 };
+    const bodyMat = new THREE.MeshStandardMaterial(creature === 'ant' ? { roughness: 0.32, metalness: 0, envMapIntensity: 1.1 } : matte);
+    this.body = new THREE.InstancedMesh(this.rig.body, bodyMat, MAX_ANTS);
     this.body.castShadow = true;
     this.eyes = new THREE.InstancedMesh(
-      buildEyes(0.085, 0.47, 0.4, 0.1),
-      new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.25 }),
+      this.rig.eyes,
+      new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: creature === 'ant' ? 0.25 : 0.45, envMapIntensity: creature === 'ant' ? 1 : 0.15 }),
       MAX_ANTS,
     );
     this.pupils = new THREE.InstancedMesh(
-      buildEyes(0.048, 0.535, 0.41, 0.105),
-      new THREE.MeshStandardMaterial({ color: '#15101f', roughness: 0.2 }),
+      this.rig.pupils,
+      new THREE.MeshStandardMaterial({ color: '#15101f', roughness: creature === 'ant' ? 0.2 : 0.35, envMapIntensity: creature === 'ant' ? 1 : 0.15 }),
       MAX_ANTS,
     );
-    this.legs = new THREE.InstancedMesh(buildLeg(), new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAX_ANTS * LEGS);
+    this.legs = new THREE.InstancedMesh(this.rig.legs, new THREE.MeshStandardMaterial(creature === 'ant' ? { roughness: 0.5 } : matte), MAX_ANTS * 6);
     this.cubes = new THREE.InstancedMesh(pieceGeometry(shape, true), pieceMaterial(shape), MAX_ANTS);
     const hatGeo = hatGeometry(hat);
     if (hatGeo) {
+      if (this.rig.hatMatrix) hatGeo.applyMatrix4(this.rig.hatMatrix);
       this.hat = new THREE.InstancedMesh(hatGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide }), MAX_ANTS);
       this.hat.castShadow = true;
       this.hat.frustumCulled = false;
@@ -195,10 +137,29 @@ export class AntsView {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.group.add(mesh);
     }
+    this.makeDetails();
+    if (this.rig.tail) {
+      this.tail = new THREE.InstancedMesh(this.rig.tail.geometry, new THREE.MeshStandardMaterial({ ...matte, vertexColors: true }), MAX_ANTS);
+      this.tail.frustumCulled = false;
+      this.tail.count = 0;
+      this.tail.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.group.add(this.tail);
+    }
     // allocate instance color buffers
     this.body.setColorAt(0, this.palette[0]);
     this.legs.setColorAt(0, this.palette[0]);
     this.cubes.setColorAt(0, this.palette[0]);
+    for (const mesh of [this.body, this.legs, this.cubes]) mesh.instanceColor!.setUsage(THREE.DynamicDrawUsage);
+  }
+
+  private makeDetails(): void {
+    if (!this.rig.details) return;
+    this.details = new THREE.InstancedMesh(this.rig.details, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0, envMapIntensity: 0.12 }), MAX_ANTS);
+    this.details.castShadow = true;
+    this.details.frustumCulled = false;
+    this.details.count = 0;
+    this.details.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.details);
   }
 
   setLayout(l: Layout): void {
@@ -274,7 +235,12 @@ export class AntsView {
     const seed = Math.random();
     const sx = from.x + (seed - 0.5) * 0.3;
     const sz = from.z + 0.2;
-    const plan = this.planInside(cell, sx, sz);
+    const planStart = perf.enabled ? performance.now() : 0;
+    const plan = this.pathPlanner.plan(this.sim, this.layout, this.rect, this.antSize, cell, sx, sz);
+    if (!plan) {
+      if (perf.enabled) perf.record('paths', performance.now() - planStart);
+      return;
+    }
     const pts: number[] = [sx, sz];
     this.route(pts, plan.inside[0], plan.inside[1]);
     const entryIndex = pts.length / 2 - 1;
@@ -292,181 +258,7 @@ export class AntsView {
     const entryDist = ant.cum[entryIndex];
     ant.lineD = plan.blockD.map((d) => entryDist + d);
     this.ants.push(ant);
-  }
-
-  private cellXZ(i: number, out: { x: number; z: number }): { x: number; z: number } {
-    const l = this.layout;
-    const w = this.sim.w;
-    const x = i % w;
-    out.x = l.picX0 + (x + 0.5) * l.cell;
-    out.z = l.picZ0 + ((i - x) / w + 0.5) * l.cell;
-    return out;
-  }
-
-  /** Point just outside the frame where an ant enters to reach border cell `i` through `side` bit. */
-  private exitPoint(i: number, bit: number): { x: number; z: number } {
-    const p = this.cellXZ(i, { x: 0, z: 0 });
-    const r = this.rect;
-    if (bit === 1) p.z = r.z1 + 0.25;
-    else if (bit === 2) p.z = r.z0 - 0.25;
-    else if (bit === 4) p.x = r.x0 - 0.25;
-    else p.x = r.x1 + 0.25;
-    return p;
-  }
-
-  /**
-   * Path inside the frame to a cube: breadth-first search from the cube over free cells to an
-   * open side, preferring entrances close to where the ant starts, then smoothed into straight
-   * runs. Returns world waypoints (entrance first) and the cells an ant must wait for.
-   */
-  private planInside(target: number, sx: number, sz: number): { inside: number[]; block: number[]; blockD: number[] } {
-    const sim = this.sim;
-    const w = sim.w;
-    const h = sim.h;
-    const n = w * h;
-    const l = this.layout;
-    const cellSize = l.cell;
-    if (this.bfsDist.length !== n) {
-      this.bfsDist = new Int32Array(n);
-      this.bfsPrev = new Int32Array(n);
-    }
-    const dist = this.bfsDist.fill(-1);
-    const prev = this.bfsPrev;
-    const free = (i: number) => sim.isFree(i) && sim.air[i] === 1;
-    let bestCost = Infinity;
-    let bestCell = -1;
-    let bestBit = 0;
-    const tryExit = (i: number, d: number) => {
-      const mask = sim.edgeMask(i);
-      for (const bit of [1, 2, 4, 8]) {
-        if (!(mask & bit)) continue;
-        const e = this.exitPoint(i, bit);
-        const cost = d * cellSize + Math.hypot(e.x - sx, e.z - sz) * 0.8;
-        if (cost < bestCost) {
-          bestCost = cost;
-          bestCell = i;
-          bestBit = bit;
-        }
-      }
-    };
-    dist[target] = 0;
-    tryExit(target, 0);
-    const queue = [target];
-    for (let qi = 0; qi < queue.length; qi++) {
-      const c = queue[qi];
-      const x = c % w;
-      const y = (c - x) / w;
-      for (let d = 0; d < 4; d++) {
-        const nx = d === 2 ? x - 1 : d === 3 ? x + 1 : x;
-        const ny = d === 0 ? y + 1 : d === 1 ? y - 1 : y;
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const j = ny * w + nx;
-        if (dist[j] >= 0 || !free(j)) continue;
-        dist[j] = dist[c] + 1;
-        prev[j] = c;
-        tryExit(j, dist[j]);
-        queue.push(j);
-      }
-    }
-    const tp = this.cellXZ(target, { x: 0, z: 0 });
-    const reach = cellSize * 0.5 + this.antSize * 0.4;
-    const pts: number[] = [];
-    if (bestCell < 0) {
-      // Should not happen (the rules said the cube is reachable): walk straight from below.
-      pts.push(tp.x, this.rect.z1 + 0.25, tp.x, tp.z + reach);
-      return { inside: pts, block: [], blockD: [] };
-    }
-    const e = this.exitPoint(bestCell, bestBit);
-    const jitter = (Math.random() - 0.5) * cellSize * 0.35;
-    const vertical = bestBit === 1 || bestBit === 2;
-    pts.push(e.x + (vertical ? jitter : 0), e.z + (vertical ? 0 : jitter));
-    // cell chain from the entrance towards the target
-    const chain: number[] = [];
-    for (let c = bestCell; c !== target; c = prev[c]) chain.push(c);
-    const tmp = { x: 0, z: 0 };
-    for (const c of chain) {
-      this.cellXZ(c, tmp);
-      pts.push(tmp.x, tmp.z);
-    }
-    // approach point: next to the cube, on the side the ant comes from
-    const fromX = chain.length ? pts[pts.length - 2] : e.x;
-    const fromZ = chain.length ? pts[pts.length - 1] : e.z;
-    let dx = fromX - tp.x;
-    let dz = fromZ - tp.z;
-    const len = Math.hypot(dx, dz) || 1;
-    dx /= len;
-    dz /= len;
-    pts.push(tp.x + dx * reach, tp.z + dz * reach);
-    const smooth = this.smoothPath(pts, target);
-    const { block, blockD } = this.blockingCells(smooth, target);
-    return { inside: smooth, block, blockD };
-  }
-
-  /** Is the segment walkable: every sampled point inside the picture lies on free space? */
-  private walkable(ax: number, az: number, bx: number, bz: number, target: number): boolean {
-    const l = this.layout;
-    const w = this.sim.w;
-    const h = this.sim.h;
-    const len = Math.hypot(bx - ax, bz - az);
-    const steps = Math.max(1, Math.ceil(len / (l.cell * 0.3)));
-    for (let k = 1; k < steps; k++) {
-      const t = k / steps;
-      const x = Math.floor((ax + (bx - ax) * t - l.picX0) / l.cell);
-      const y = Math.floor((az + (bz - az) * t - l.picZ0) / l.cell);
-      if (x < 0 || y < 0 || x >= w || y >= h) continue;
-      const i = y * w + x;
-      if (i === target) continue;
-      if (!this.sim.isFree(i) || !this.sim.air[i]) return false;
-    }
-    return true;
-  }
-
-  /** Greedy string pulling: skip waypoints while the straight line stays in free space. */
-  private smoothPath(pts: number[], target: number): number[] {
-    const m = pts.length / 2;
-    if (m <= 2) return pts;
-    const out = [pts[0], pts[1]];
-    let i = 0;
-    while (i < m - 1) {
-      let j = Math.min(m - 1, i + 14);
-      while (j > i + 1 && !this.walkable(pts[i * 2], pts[i * 2 + 1], pts[j * 2], pts[j * 2 + 1], target)) j--;
-      out.push(pts[j * 2], pts[j * 2 + 1]);
-      i = j;
-    }
-    return out;
-  }
-
-  /** Cubes along the path that may still physically be there (claimed by other ants). */
-  private blockingCells(pts: number[], target: number): { block: number[]; blockD: number[] } {
-    const l = this.layout;
-    const w = this.sim.w;
-    const h = this.sim.h;
-    const block: number[] = [];
-    const blockD: number[] = [];
-    const seen = new Set<number>();
-    let acc = 0;
-    const margin = this.antSize * 0.45;
-    for (let k = 0; k + 3 < pts.length; k += 2) {
-      const ax = pts[k];
-      const az = pts[k + 1];
-      const bx = pts[k + 2];
-      const bz = pts[k + 3];
-      const len = Math.hypot(bx - ax, bz - az);
-      const steps = Math.max(1, Math.ceil(len / (l.cell * 0.25)));
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        const x = Math.floor((ax + (bx - ax) * t - l.picX0) / l.cell);
-        const y = Math.floor((az + (bz - az) * t - l.picZ0) / l.cell);
-        if (x < 0 || y < 0 || x >= w || y >= h) continue;
-        const i = y * w + x;
-        if (i === target || seen.has(i) || this.sim.cellColor(i) < 0) continue;
-        seen.add(i);
-        block.push(i);
-        blockD.push(Math.max(0, acc + len * t - margin));
-      }
-      acc += len;
-    }
-    return { block, blockD };
+    if (perf.enabled) perf.record('paths', performance.now() - planStart);
   }
 
   /** Append waypoints from the last point to (x, z), walking around the frame and the queue. */
@@ -574,6 +366,7 @@ export class AntsView {
   }
 
   private goHome(a: Ant): void {
+    const planStart = perf.enabled ? performance.now() : 0;
     // Walk back out the same way the ant came in, then around to the house.
     const pts: number[] = [];
     const first = Math.max(0, a.pts.length / 2 - Math.max(2, a.back));
@@ -589,11 +382,11 @@ export class AntsView {
     a.dist = 0;
     a.phase = 'home';
     a.startY = 0;
+    if (perf.enabled) perf.record('paths', performance.now() - planStart);
   }
 
   update(dt: number, time: number): void {
     const spd = 3.3 * this.speed;
-    const r = this.rect;
     const keep: Ant[] = [];
     for (const a of this.ants) {
       if (a.delay > 0) {
@@ -666,15 +459,12 @@ export class AntsView {
         while (d < -Math.PI) d += Math.PI * 2;
         a.yaw += d * Math.min(1, dt * 14);
       }
-      if (moving) a.legPhase += dt * spd * 9;
-      // height: hop down from the box, climb over the rim of the frame
-      let y = 0;
-      if (a.phase === 'out' && a.startY > 0) y = Math.max(0, a.startY * (1 - a.dist / 0.6));
-      const onRim =
-        a.x > r.x0 && a.x < r.x1 && a.z > r.z0 && a.z < r.z1 && !(a.x > r.ix0 && a.x < r.ix1 && a.z > r.iz0 && a.z < r.iz1);
-      if (onRim) y = Math.max(y, r.rim);
-      else if (a.x > r.ix0 && a.x < r.ix1 && a.z > r.iz0 && a.z < r.iz1) y = Math.max(y, 0.04);
-      a.y += (y - a.y) * Math.min(1, dt * 18);
+      if (moving) a.legPhase += dt * (this.creature === 'ant' ? spd * 9 : Math.min(spd, 6) * 4);
+      // Keep the whole body and animated tail above the rim until the last part clears it.
+      // The footprint ramps up before contact; easing must never sink below that clearance.
+      let y = this.grounding.heightAt(a.x, a.z, a.yaw, this.antSize, this.rect);
+      if (a.phase === 'out' && a.startY > 0) y = Math.max(y, a.startY * (1 - a.dist / 0.6));
+      a.y = Math.max(y, a.y + (y - a.y) * Math.min(1, dt * 18));
       let scale = 1;
       if (a.phase === 'out') a.scale = Math.min(1, a.scale + dt * 5);
       if (a.phase === 'enter') scale = Math.max(0.01, 1 - a.timer / 0.22);
@@ -709,17 +499,23 @@ export class AntsView {
       this.pupils.setMatrixAt(n, this.m);
       this.hat?.setMatrixAt(n, this.m);
       this.body.setColorAt(n, this.palette[a.color]);
-      for (let k = 0; k < LEGS; k++) {
-        const side = k < 3 ? -1 : 1;
-        const pair = k % 3;
-        const gait = ((pair + (side > 0 ? 1 : 0)) % 2) * Math.PI;
-        const swing = Math.sin(a.legPhase + gait) * 0.38;
-        const lift = Math.max(0, Math.cos(a.legPhase + gait)) * 0.22;
-        this.e.set(0, side < 0 ? Math.PI : 0, 0);
-        const baseYaw = (side < 0 ? Math.PI : 0) - side * (LEG_YAW[pair] + swing);
-        this.e.set(0, baseYaw, side * 0 + lift);
+      this.details?.setMatrixAt(n, this.m);
+      if (this.tail && this.rig.tail) {
+        const p = this.rig.tail.pivot;
+        this.e.set(0, Math.sin(a.legPhase * 0.5 + a.seed * 6) * 0.28, 0);
         this.q.setFromEuler(this.e);
-        this.v.set(side * 0.08, 0.22, HIP_Z[pair]);
+        this.v.set(p.x, p.y, p.z);
+        this.m2.compose(this.v, this.q, this.one).premultiply(this.m);
+        this.tail.setMatrixAt(n, this.m2);
+      }
+      for (const pose of this.rig.legPoses) {
+        const swing = Math.sin(a.legPhase + pose.phase) * 0.38;
+        const lift = Math.max(0, Math.cos(a.legPhase + pose.phase)) * 0.22;
+        // Ant legs sweep sideways; paws swing forward and lift together with the gait.
+        if (this.creature === 'ant') this.e.set(0, pose.yaw - pose.side * swing, lift);
+        else this.e.set(swing, pose.yaw, 0);
+        this.q.setFromEuler(this.e);
+        this.v.set(pose.x, pose.y + (this.creature === 'ant' ? 0 : lift * 0.22), pose.z);
         this.m2.compose(this.v, this.q, this.one);
         this.m2.premultiply(this.m);
         this.legs.setMatrixAt(legN, this.m2);
@@ -742,20 +538,30 @@ export class AntsView {
       n++;
     }
     this.body.count = this.eyes.count = this.pupils.count = n;
+    if (this.details) {
+      this.details.count = n;
+    }
+    if (this.tail) this.tail.count = n;
     this.legs.count = legN;
     this.cubes.count = cubeN;
     if (this.hat) {
       this.hat.count = n;
-      this.hat.instanceMatrix.needsUpdate = true;
     }
-    for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes]) {
+    for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes, this.details, this.hat, this.tail]) {
+      if (!mesh || !mesh.count) continue;
+      mesh.instanceMatrix.clearUpdateRanges();
+      mesh.instanceMatrix.addUpdateRange(0, mesh.count * 16);
       mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (mesh.instanceColor) {
+        mesh.instanceColor.clearUpdateRanges();
+        mesh.instanceColor.addUpdateRange(0, mesh.count * 3);
+        mesh.instanceColor.needsUpdate = true;
+      }
     }
   }
 
   dispose(): void {
-    for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes, ...(this.hat ? [this.hat] : [])]) {
+    for (const mesh of [this.body, this.eyes, this.pupils, this.legs, this.cubes, ...(this.hat ? [this.hat] : []), ...(this.details ? [this.details] : []), ...(this.tail ? [this.tail] : [])]) {
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
       mesh.dispose();

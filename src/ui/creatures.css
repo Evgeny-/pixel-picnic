@@ -1,0 +1,18 @@
+.dialog.creature-dialog { width: min(490px, calc(100vw - 32px)); }
+.creature-dialog .creature-hint { font-size: 14px; line-height: 1.4; margin: 0 0 14px; color: var(--utility-muted); text-align: center; }
+.creature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 3px 3px 8px; }
+.creature-card { position: relative; min-width: 0; padding: 6px 10px 12px; border: 3px solid transparent; border-radius: 24px; background: #fffaf0; box-shadow: 0 5px 0 #ddc298; color: #302442; font-weight: 900; font-size: 19px; }
+.creature-card img { display: block; width: 100%; height: min(17vh, 135px); object-fit: contain; }
+.creature-portrait { display: block; width: 100%; height: min(17vh, 135px); }
+.creature-card.selected { border-color: #58b73b; background: #f3ffe8; box-shadow: 0 5px 0 #3d9326; }
+.creature-check { display: none; position: absolute; right: 8px; top: 8px; width: 24px; height: 24px; border-radius: 50%; background: #3b9e2b; color: #fff; text-align: center; line-height: 24px; font-size: 17px; }
+.creature-card.selected .creature-check { display: block; }
+.creature-card:focus-visible { outline: 3px solid #7550cc; outline-offset: 3px; }
+html.night .creature-card { background: #383a55; color: #f4efff; box-shadow: 0 5px 0 #151728; }
+html.night .creature-card.selected { background: #344832; border-color: #85d85c; box-shadow: 0 5px 0 #23331c; }
+@media (max-height: 580px) {
+  .creature-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+  .creature-card { padding-inline: 3px; font-size: 13px; border-radius: 16px; }
+  .creature-card img { height: 95px; }
+  .creature-portrait { height: 95px; }
+}

@@ -75,9 +75,9 @@ export const THEMES: WorldTheme[] = [
     roof: '#3a9fd8',
     ground: {
       kind: 'sand',
-      base: '#f1dba6',
-      tints: ['#f6e4b8', '#e9cf94', '#fbeac2', '#e3c686'],
-      detail: ['#d8bb7e', '#fff4d6', '#cfae6d', '#e7cf9b'],
+      base: '#d9bf91',
+      tints: ['#e7cea4', '#cdb083', '#efdbb7', '#ccb58e'],
+      detail: ['#9f8357', '#f5e4c5', '#ba9b6b', '#e7d1ad'],
       accents: ['#ffb4a2', '#ffffff', '#9ad1d4', '#ffd6a5'],
     },
     ui: { top: '#8fd8f4', bottom: '#f1dba6', accent: '#ff7b7b', path: '#fff1cf' },

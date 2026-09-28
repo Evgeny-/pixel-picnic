@@ -17,6 +17,8 @@ export interface DialogOptions {
   row?: boolean;
   closable?: boolean;
   onClose?: () => void;
+  /** Release live previews on every close path, including actions and navigation. */
+  onDispose?: () => void;
   scroll?: boolean;
   /** Extra class for the dialog box (e.g. "wide"). */
   cls?: string;
@@ -54,6 +56,7 @@ export function openDialog(opts: DialogOptions): DialogHandle {
     close() {
       if (closed) return;
       closed = true;
+      opts.onDispose?.();
       const i = stack.indexOf(handle);
       if (i >= 0) stack.splice(i, 1);
       overlay.classList.add('out');
