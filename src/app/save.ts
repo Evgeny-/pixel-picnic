@@ -6,7 +6,7 @@ export interface Settings {
   music: number;
   sfx: number;
   lang: Lang | null;
-  speed: number;
+  speed: 1 | 2;
   /** Debug mode: every level unlocked, difficulty stats visible. */
   debug: boolean;
   /** Night mode: follow the system (auto), always on or always off. */
@@ -55,13 +55,18 @@ export function loadSave(): SaveData {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaults();
-    const d = JSON.parse(raw) as Partial<SaveData>;
+    const d = JSON.parse(raw) as Partial<Omit<SaveData, 'settings'>> & { settings?: Partial<Omit<Settings, 'speed'>> & { speed?: number } };
     const base = defaults();
     return {
       ...base,
       ...d,
       boosters: { ...base.boosters, ...(d.boosters ?? {}) },
-      settings: { ...base.settings, ...(d.settings ?? {}), creature: isCreatureId(d.settings?.creature) ? d.settings.creature : undefined },
+      settings: {
+        ...base.settings, ...(d.settings ?? {}),
+        // Older versions offered 3×. Keep those players on the faster manual setting.
+        speed: d.settings?.speed === 2 || d.settings?.speed === 3 ? 2 : 1,
+        creature: isCreatureId(d.settings?.creature) ? d.settings.creature : undefined,
+      },
       looks: { ...base.looks, ...(d.looks ?? {}) },
       stars: d.stars ?? {},
       seen: d.seen ?? [],

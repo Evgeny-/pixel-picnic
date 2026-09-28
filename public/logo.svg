@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 128 128" role="img" aria-labelledby="title">
   <title id="title">Pixel Picnic: a basket of colorful pixels</title>
   <defs>
     <linearGradient id="field" x2="0" y2="1"><stop stop-color="#b3e87c"/><stop offset="1" stop-color="#69bf49"/></linearGradient>

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Pixel Picnic · варианты логотипа</title>
+  <link rel="icon" href="./basket.svg" type="image/svg+xml">
+  <style>
+    @font-face { font-family: Nunito; src: url('./nunito-latin.woff2') format('woff2'); font-weight: 200 1000; font-display: swap; }
+    @font-face { font-family: Nunito; src: url('./nunito-cyrillic.woff2') format('woff2'); font-weight: 200 1000; font-display: swap; unicode-range: U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116; }
+    :root { color-scheme: light; --paper: #fff7e8; --ink: #37294c; --muted: #77674e; --surface: #fffdf7; --line: #eadbbf; --ground: #efe1c5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 600 17px/1.5 Nunito, ui-rounded, system-ui, sans-serif; }
+    body.dark { color-scheme: dark; --paper: #202338; --ink: #f6f0ff; --muted: #bab5ca; --surface: #2b3049; --line: #454b68; --ground: #181d30; }
+    main { max-width: 1200px; margin: auto; padding: 36px 28px 48px; }
+    header { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+    h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.2; font-weight: 900; margin: 0 0 9px; letter-spacing: -.7px; }
+    header p { max-width: 690px; margin: 0; color: var(--muted); }
+    button { font: inherit; cursor: pointer; }
+    .theme { flex: none; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 9px 15px; font-weight: 800; }
+    .theme:focus-visible, .choose:focus-visible, a:focus-visible { outline: 3px solid #a37aee; outline-offset: 4px; }
+    .current { display: flex; align-items: center; gap: 16px; margin: 0 0 26px; }
+    .current img { width: 58px; height: 58px; }
+    .current strong { display: block; font-size: 16px; }
+    .current p { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+    .options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+    article { min-width: 0; }
+    .art { display: grid; place-items: center; min-height: 240px; border: 2px solid transparent; border-radius: 26px; background: var(--surface); }
+    .art img { width: 192px; height: 192px; filter: drop-shadow(0 6px 0 rgb(66 43 18 / 10%)); }
+    article.selected .art { border-color: #8b5cf6; }
+    h2 { margin: 16px 0 6px; font-size: 23px; font-weight: 900; line-height: 1.2; }
+    .description { min-height: 76px; margin: 0 0 15px; color: var(--muted); font-size: 16px; }
+    .sizes { display: flex; align-items: center; gap: 15px; height: 62px; margin-bottom: 14px; }
+    .sizes figure { display: flex; align-items: center; gap: 7px; margin: 0; }
+    .sizes figcaption { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .choose { display: inline-flex; align-items: center; gap: 7px; color: #6841b0; background: #eee3ff; border: 0; border-radius: 12px; font-size: 15px; font-weight: 900; padding: 9px 13px; }
+    .choose[aria-pressed="true"] { color: #fff; background: #8051da; }
+    .preview { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 34px; align-items: center; }
+    .lockup { min-height: 210px; display: flex; align-items: center; justify-content: center; gap: 22px; border-radius: 26px; padding: 28px; background: #8fc853; }
+    .lockup img { width: 110px; height: 110px; }
+    .wordmark { color: #fff8df; font-size: clamp(32px, 4vw, 50px); font-weight: 1000; line-height: .99; letter-spacing: -1px; text-shadow: 0 3px 0 #477730, 0 6px 12px rgb(42 71 19 / 18%); }
+    .wordmark span { display: block; }
+    .context-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: var(--muted); }
+    .browser-tab { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); padding: 12px; border-radius: 11px 11px 0 0; font: 500 13px system-ui, sans-serif; }
+    .browser-tab img { width: 16px; height: 16px; }
+    .browser-tab span:last-child { margin-left: auto; font-size: 17px; color: var(--muted); }
+    .phone { display: flex; align-items: center; gap: 12px; margin-top: 20px; padding: 16px; border-radius: 20px; background: var(--ground); }
+    .phone img { width: 56px; height: 56px; }
+    .phone p { font-size: 15px; line-height: 1.3; margin: 0; }
+    .phone small { display: block; color: var(--muted); margin-top: 4px; font-size: 12px; }
+    footer { margin-top: 27px; color: var(--muted); font-size: 14px; }
+    footer a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    @media (max-width: 780px) { main { padding: 24px 20px 36px; } .options { grid-template-columns: 1fr; gap: 26px; } article { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 0 18px; } .art { min-height: 166px; grid-row: 1 / span 4; align-self: start; } .art img { width: 124px; height: 124px; } h2 { margin-top: 0; } .description { min-height: 0; margin-bottom: 9px; } .sizes { gap: 11px; margin: 0 0 8px; height: 49px; } .sizes figure { gap: 4px; } .sizes figure:last-child { display: none; } .choose { justify-self: start; font-size: 14px; padding: 7px 10px; } .preview { grid-template-columns: 1fr; gap: 22px; } .context { max-width: 360px; } header { display: block; } .theme { margin-top: 15px; } .lockup { min-height: 180px; padding: 22px; gap: 15px; } .lockup img { width: 90px; height: 90px; } .wordmark { font-size: 40px; } }
+    @media (max-width: 390px) { article { grid-template-columns: 112px minmax(0, 1fr); gap: 0 14px; } .art { min-height: 132px; border-radius: 20px; } .art img { width: 96px; height: 96px; } h2 { font-size: 21px; } .description { font-size: 15px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Кто теперь на иконке?</h1>
+        <p>У пикника стало больше гостей. Можно сделать знаком игры то, что они собирают, или место, куда всё приносят.</p>
+      </div>
+      <button class="theme" type="button" aria-pressed="false">Тёмный фон</button>
+    </header>
+    <div class="current">
+      <img src="/favicon.svg" alt="Текущий логотип: фиолетовый муравей на зелёном фоне">
+      <div><strong>Сейчас</strong><p>Муравей остаётся в игре. Для общего логотипа пробуем другие образы.</p></div>
+    </div>
+    <section class="options" aria-label="Варианты логотипа">
+      <article class="selected" data-icon="basket">
+        <div class="art"><img src="./basket.svg" alt="Корзинка с красным, жёлтым и голубым пикселями"></div>
+        <h2>Корзинка с пикселями</h2>
+        <p class="description">Мой выбор. Связывает название с собиранием цветных кусочков; корзинка общая для всех зверят.</p>
+        <div class="sizes" aria-label="Иконка в настоящих размерах">
+          <figure><img src="./basket.svg" width="16" height="16" alt=""><figcaption>16</figcaption></figure>
+          <figure><img src="./basket.svg" width="32" height="32" alt=""><figcaption>32</figcaption></figure>
+          <figure><img src="./basket.svg" width="48" height="48" alt=""><figcaption>48 px</figcaption></figure>
+        </div>
+        <button class="choose" type="button" aria-pressed="true">В примере ниже</button>
+      </article>
+      <article data-icon="home">
+        <div class="art"><img src="./home.svg" alt="Уютный домик с оранжевой крышей и цветными пикселями у двери"></div>
+        <h2>Общий домик</h2>
+        <p class="description">Знакомое место из самой игры. Хорошо передаёт уют, но смысл головоломки читается слабее.</p>
+        <div class="sizes" aria-label="Иконка в настоящих размерах">
+          <figure><img src="./home.svg" width="16" height="16" alt=""><figcaption>16</figcaption></figure>
+          <figure><img src="./home.svg" width="32" height="32" alt=""><figcaption>32</figcaption></figure>
+          <figure><img src="./home.svg" width="48" height="48" alt=""><figcaption>48 px</figcaption></figure>
+        </div>
+        <button class="choose" type="button" aria-pressed="false">Посмотреть с названием</button>
+      </article>
+      <article data-icon="apple">
+        <div class="art"><img src="./apple.svg" alt="Яблоко из красных кубиков на тарелке; один кубик отделился"></div>
+        <h2>Пиксельное угощение</h2>
+        <p class="description">Картинка распадается на кусочки. Показывает идею еды из пикселей, хотя может напоминать игру про фрукты.</p>
+        <div class="sizes" aria-label="Иконка в настоящих размерах">
+          <figure><img src="./apple.svg" width="16" height="16" alt=""><figcaption>16</figcaption></figure>
+          <figure><img src="./apple.svg" width="32" height="32" alt=""><figcaption>32</figcaption></figure>
+          <figure><img src="./apple.svg" width="48" height="48" alt=""><figcaption>48 px</figcaption></figure>
+        </div>
+        <button class="choose" type="button" aria-pressed="false">Посмотреть с названием</button>
+      </article>
+    </section>
+    <section class="preview" aria-label="Выбранный логотип в интерфейсе">
+      <div class="lockup"><img data-selected-icon src="./basket.svg" alt="Выбранный знак"><div class="wordmark"><span>Pixel</span><span>Picnic</span></div></div>
+      <div class="context">
+        <p class="context-title">Во вкладке и на телефоне</p>
+        <div class="browser-tab"><img data-selected-icon src="./basket.svg" alt=""><span>Pixel Picnic</span><span aria-hidden="true">×</span></div>
+        <div class="phone"><img data-selected-icon src="./basket.svg" alt=""><p>Pixel Picnic<small>Иконка на главном экране</small></p></div>
+      </div>
+    </section>
+    <footer>Это отдельный пример. <a href="/">Вернуться к игре</a></footer>
+  </main>
+  <script>
+    const theme = document.querySelector('.theme');
+    theme.addEventListener('click', () => {
+      const dark = document.body.classList.toggle('dark');
+      theme.setAttribute('aria-pressed', String(dark));
+      theme.textContent = dark ? 'Светлый фон' : 'Тёмный фон';
+    });
+    document.querySelectorAll('.choose').forEach(button => button.addEventListener('click', () => {
+      const option = button.closest('article');
+      const source = `./${option.dataset.icon}.svg`;
+      document.querySelectorAll('article').forEach(article => {
+        const selected = article === option;
+        article.classList.toggle('selected', selected);
+        const control = article.querySelector('button');
+        control.setAttribute('aria-pressed', String(selected));
+        control.textContent = selected ? 'В примере ниже' : 'Посмотреть с названием';
+      });
+      document.querySelectorAll('[data-selected-icon]').forEach(img => img.src = source);
+      document.querySelector('link[rel="icon"]').href = source;
+    }));
+  </script>
+</body>
+</html>

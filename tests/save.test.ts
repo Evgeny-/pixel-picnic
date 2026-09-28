@@ -59,3 +59,14 @@ describe('companion selection in saves', () => {
     expect(loadSave().settings.creature).toBeUndefined();
   });
 });
+
+describe('manual speed in saves', () => {
+  it.each([[1, 1], [2, 2], [3, 2], [5, 1], [0, 1]])('loads saved speed %s as %s without persisting finish speed', (saved, expected) => {
+    savedGame({ level: 42, settings: { speed: saved } });
+    const save = loadSave();
+    expect(save.settings.speed).toBe(expected);
+    expect(save.level).toBe(42);
+    writeSave(save);
+    expect(loadSave().settings.speed).toBe(expected);
+  });
+});

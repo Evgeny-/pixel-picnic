@@ -4,7 +4,7 @@ import { EMOJI, type EmojiName } from './emoji.generated';
 const LINE: Record<string, string> = {
   music: '<path d="M9 18V6l10-2v12M9 10l10-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5" fill="currentColor"/><ellipse cx="16" cy="16" rx="3" ry="2.5" fill="currentColor"/>',
   sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a6 6 0 010 8M20 5a10 10 0 010 14"/>',
-  pause: '<path d="M9 6v12M15 6v12"/>',
+  pause: '<path d="M8 4.5v15M16 4.5v15"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
   ff: '<path d="M4 6.5v11l7.5-5.5zM12.5 6.5v11l7.5-5.5z" fill="currentColor"/>',
   undo: '<path d="M9 13.5L4 8.5l5-5"/><path d="M4.5 8.5H14a5.5 5.5 0 010 11h-3.5"/>',

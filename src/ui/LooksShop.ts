@@ -11,12 +11,14 @@ import { lookPreview, creaturePreview } from '../render/preview';
 import type { HatId } from '../render/hats';
 import { audio } from '../audio/audio';
 import { CreatureTurntable } from '../render/CreatureTurntable';
+import { ShopPurchaseSession } from './ShopPurchaseSession';
 
 export type ShopTab = LookItem['kind'] | 'booster' | 'creature';
 
 /** Keep tabs and selected items stable while purchases update the balance. */
 export function openLooksShop(save: SaveData, tab: ShopTab, onSave: () => void, ui: HTMLElement): void {
     const turntable = new CreatureTurntable();
+    const purchases = new ShopPurchaseSession(save);
     const coins = h('p', { class: 'shop-coins', attrs: { 'aria-live': 'polite' } });
     const tabs = h('div', { class: 'seg shop-tabs', attrs: { role: 'tablist', 'aria-label': t('shop') } });
     const grid = h('div', { class: 'shop-grid', attrs: { id: 'shop-items', role: 'tabpanel' } });
@@ -54,13 +56,11 @@ export function openLooksShop(save: SaveData, tab: ShopTab, onSave: () => void, 
           );
           updates.push(() => { price.innerHTML = `×${save.boosters[b]} · ${emoji('coin', 18)} ${BOOSTER_PRICE[b]}`; });
           card.addEventListener('click', () => {
-            if (save.coins < BOOSTER_PRICE[b]) {
+            if (!purchases.buy(`booster:${b}`, BOOSTER_PRICE[b], () => { save.boosters[b]++; })) {
               audio.play('invalid');
               toast(ui, t('notEnough'));
               return;
             }
-            save.coins -= BOOSTER_PRICE[b];
-            save.boosters[b]++;
             audio.play('coin');
             savePurchase();
           });
@@ -91,16 +91,17 @@ export function openLooksShop(save: SaveData, tab: ShopTab, onSave: () => void, 
           });
           card.addEventListener('click', () => {
             if (!owned()) {
-              if (save.coins < item.price) {
+              if (!purchases.buy(key, item.price, () => { save.looks.owned.push(key); })) {
                 audio.play('invalid');
                 toast(ui, t('notEnough'));
                 return;
               }
-              save.coins -= item.price;
-              save.looks.owned.push(key);
               audio.play('unlock');
               toast(ui, t('bought'));
-            } else audio.play('button');
+            } else {
+              purchases.reset();
+              audio.play('button');
+            }
             save.settings.creature = item.id;
             savePurchase();
           });
@@ -133,15 +134,17 @@ export function openLooksShop(save: SaveData, tab: ShopTab, onSave: () => void, 
               : owned() ? t('wear') : `${emoji('coin', 18)} ${item.price}`;
           });
           card.addEventListener('click', () => {
-            if (looks[item.kind] === item.id) return;
+            if (looks[item.kind] === item.id) {
+              purchases.reset();
+              return;
+            }
+            if (owned()) purchases.reset();
             if (!owned()) {
-              if (save.coins < item.price) {
+              if (!purchases.buy(lookKey(item), item.price, () => { looks.owned.push(lookKey(item)); })) {
                 audio.play('invalid');
                 toast(ui, t('notEnough'));
                 return;
               }
-              save.coins -= item.price;
-              looks.owned.push(lookKey(item));
               audio.play('unlock');
               toast(ui, t('bought'));
             } else audio.play('button');
@@ -158,6 +161,7 @@ export function openLooksShop(save: SaveData, tab: ShopTab, onSave: () => void, 
       const b = h('button', { text: label, attrs: { id: `shop-tab-${id}`, role: 'tab', 'aria-controls': 'shop-items' } });
       b.addEventListener('click', () => {
         if (tab === id) return;
+        purchases.reset();
         scrollTop.set(tab, grid.scrollTop);
         tab = id;
         audio.play('button');
@@ -177,6 +181,7 @@ export function openLooksShop(save: SaveData, tab: ShopTab, onSave: () => void, 
       tabButtons.set(id, b);
       tabs.append(b);
     }
-    openDialog({ title: t('shop'), head: 'purple', body: [coins, tabs, grid], onClose: () => undefined, onDispose: () => turntable.dispose(), cls: 'wide shop-dialog' });
+    openDialog({ title: t('shop'), head: 'purple', body: [coins, tabs, grid], onClose: () => undefined,
+      onDispose: () => { purchases.reset(); turntable.dispose(); }, cls: 'wide shop-dialog' });
     renderItems();
   }

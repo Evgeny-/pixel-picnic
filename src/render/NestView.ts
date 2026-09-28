@@ -357,7 +357,7 @@ export class NestView {
   }
 
   setLayout(l: Layout): void {
-    this.scale = l.mode === 'portrait' ? 0.8 : 0.9;
+    this.scale = 0.9;
     this.group.position.set(l.nest.x, 0, l.nest.z);
     this.group.scale.setScalar(this.scale);
   }

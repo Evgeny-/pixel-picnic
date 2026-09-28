@@ -7,7 +7,6 @@ import { cellCenter, type Layout } from './layout';
 
 export const CUBE_H = 0.62;
 const FLOOR_Y = 0.06;
-const AXIS_Z = new THREE.Vector3(0, 0, 1);
 /** Deep blue that night mode mixes into surfaces. */
 export const NIGHT_SHADE = new THREE.Color('#0d1022');
 
@@ -43,7 +42,6 @@ interface CubeAnim {
   cell: number;
   t: number;
   dur: number;
-  kind: 'wobble' | 'drop';
   delay: number;
 }
 
@@ -61,7 +59,9 @@ export class BoardView {
   private frameMesh: THREE.Mesh | null = null;
   private floorMesh: THREE.Mesh | null = null;
   private anims: CubeAnim[] = [];
-  private clock = 0;
+  private readonly pickupCells = new Set<number>();
+  private readonly pickupColor = new THREE.Color();
+  private readonly pickupWhite = new THREE.Color('#fffaf0');
   private readonly m4 = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly v = new THREE.Vector3();
@@ -117,7 +117,10 @@ export class BoardView {
     this.cubes.receiveShadow = true;
     this.cubes.count = cells.length;
     cells.forEach((cell, k) => this.cubes.setColorAt(k, this.colors[this.cellColor[cell]]));
-    if (this.cubes.instanceColor) this.cubes.instanceColor.needsUpdate = true;
+    if (this.cubes.instanceColor) {
+      this.cubes.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      this.cubes.instanceColor.needsUpdate = true;
+    }
     this.group.add(this.cubes);
     this.frameColor = new THREE.Color(frameColor);
     this.frameMat = new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.62, metalness: 0 });
@@ -126,6 +129,7 @@ export class BoardView {
   }
 
   setLayout(l: Layout): void {
+    this.clearPickupFeedback();
     this.layoutRef = l;
     this.buildFrame(l);
     this.buildFences(l);
@@ -307,7 +311,7 @@ export class BoardView {
     return t;
   }
 
-  private writeMatrix(cell: number, scale: number, lift: number, wobble = 0): void {
+  private writeMatrix(cell: number, scale: number, lift: number): void {
     const inst = this.instOf[cell];
     if (inst < 0) return;
     const l = this.layoutRef;
@@ -315,7 +319,7 @@ export class BoardView {
     const y = (cell - x) / this.w;
     const p = cellCenter(l, x, y);
     this.v.set(p.x, FLOOR_Y + (CUBE_H * l.cell) / 2 + lift, p.z);
-    this.q.setFromAxisAngle(AXIS_Z, wobble);
+    this.q.identity();
     const s = l.cell * scale;
     this.sc.set(s, s, s);
     this.m4.compose(this.v, this.q, this.sc);
@@ -340,29 +344,54 @@ export class BoardView {
     return this.colors[this.cellColor[cell]];
   }
 
+  /** One soft breath while the creature reaches: no extra mesh, lights or particles. */
+  setPickupProgress(cell: number, progress: number): void {
+    if (!this.present[cell]) return;
+    const t = Math.max(0, Math.min(1, progress));
+    const pulse = (1 - Math.cos(t * Math.PI * 2)) * 0.5;
+    if (pulse > 0) this.pickupCells.add(cell);
+    else this.pickupCells.delete(cell);
+    this.pickupColor.copy(this.cubeColor(cell)).lerp(this.pickupWhite, pulse * 0.1);
+    this.writeColor(cell, this.pickupColor);
+    this.writeMatrix(cell, 1 + pulse * 0.035, 0);
+    this.cubes.instanceMatrix.needsUpdate = true;
+  }
+
+  private writeColor(cell: number, color: THREE.Color): void {
+    const inst = this.instOf[cell];
+    this.cubes.setColorAt(inst, color);
+    this.cubes.instanceColor!.addUpdateRange(inst * 3, 3);
+    this.cubes.instanceColor!.needsUpdate = true;
+  }
+
+  private clearPickupFeedback(): void {
+    for (const cell of this.pickupCells) {
+      this.writeColor(cell, this.cubeColor(cell));
+      this.writeMatrix(cell, this.present[cell] ? 1 : 0, 0);
+    }
+    if (this.pickupCells.size) this.cubes.instanceMatrix.needsUpdate = true;
+    this.pickupCells.clear();
+  }
+
   /** A cube was picked up by an ant. */
   remove(cell: number): void {
     if (!this.present[cell]) return;
     this.present[cell] = 0;
+    if (this.pickupCells.delete(cell)) this.writeColor(cell, this.cubeColor(cell));
     this.anims = this.anims.filter((a) => a.cell !== cell);
     this.writeMatrix(cell, 0, 0);
     this.cubes.instanceMatrix.needsUpdate = true;
   }
 
-  /** Little shiver when an ant starts chewing on a cube. */
-  wobble(cell: number): void {
-    if (!this.present[cell]) return;
-    this.anims.push({ cell, t: 0, dur: 0.35, kind: 'wobble', delay: 0 });
-  }
-
   /** Re-sync visible cubes with the simulation (undo / restart). */
   syncFrom(sim: Sim, pop = true): void {
+    this.clearPickupFeedback();
     for (let i = 0; i < this.w * this.h; i++) {
       if (this.instOf[i] < 0) continue;
       const want = sim.eaten[i] ? 0 : 1;
       if (want === this.present[i]) continue;
       this.present[i] = want;
-      if (want && pop) this.anims.push({ cell: i, t: 0, dur: 0.45, kind: 'drop', delay: Math.random() * 0.35 });
+      if (want && pop) this.anims.push({ cell: i, t: 0, dur: 0.45, delay: Math.random() * 0.35 });
       else this.writeMatrix(i, want, 0);
     }
     this.cubes.instanceMatrix.needsUpdate = true;
@@ -370,6 +399,7 @@ export class BoardView {
 
   /** Celebration: every cube falls back into place row by row. */
   rebuild(): number {
+    this.clearPickupFeedback();
     const l = this.layoutRef;
     let maxDelay = 0;
     for (let i = 0; i < this.w * this.h; i++) {
@@ -379,7 +409,7 @@ export class BoardView {
       const y = (i - x) / this.w;
       const delay = (this.h - 1 - y) * 0.045 + Math.abs(x - this.w / 2) * 0.012 + Math.random() * 0.05;
       maxDelay = Math.max(maxDelay, delay);
-      this.anims.push({ cell: i, t: 0, dur: 0.5, kind: 'drop', delay });
+      this.anims.push({ cell: i, t: 0, dur: 0.5, delay });
       this.writeMatrix(i, 0, 0);
     }
     void l;
@@ -388,7 +418,6 @@ export class BoardView {
   }
 
   update(dt: number): void {
-    this.clock += dt;
     if (!this.anims.length) return;
     const keep: CubeAnim[] = [];
     for (const a of this.anims) {
@@ -400,16 +429,11 @@ export class BoardView {
       a.t += dt;
       const k = Math.min(1, a.t / a.dur);
       if (!this.present[a.cell]) continue;
-      if (a.kind === 'wobble') {
-        const amp = (1 - k) * 0.22;
-        this.writeMatrix(a.cell, 1, 0, Math.sin(k * Math.PI * 6) * amp);
-      } else {
-        // drop in with a small bounce
-        const e = k < 0.7 ? k / 0.7 : 1;
-        const lift = (1 - e) * (1 - e) * 2.2 * this.layoutRef.cell * 4;
-        const squash = k < 0.7 ? 1 : 1 + Math.sin(((k - 0.7) / 0.3) * Math.PI) * 0.12;
-        this.writeMatrix(a.cell, Math.min(1, 0.3 + e * 0.7) * (2 - squash), lift);
-      }
+      // Drop in with a small bounce when rebuilding the picture after a win or undo.
+      const e = k < 0.7 ? k / 0.7 : 1;
+      const lift = (1 - e) * (1 - e) * 2.2 * this.layoutRef.cell * 4;
+      const squash = k < 0.7 ? 1 : 1 + Math.sin(((k - 0.7) / 0.3) * Math.PI) * 0.12;
+      this.writeMatrix(a.cell, Math.min(1, 0.3 + e * 0.7) * (2 - squash), lift);
       if (k < 1) keep.push(a);
       else this.writeMatrix(a.cell, 1, 0);
     }

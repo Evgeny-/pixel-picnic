@@ -74,7 +74,8 @@ Every 5th level is **hard**, every 10th is **super hard**.
   pumpkin, castle tower), box styles (classic, wooden crate, picnic basket and metal case)
   and accessories the whole colony wears (party hats, caps, bows,
   flowers, sunglasses, top hats, Santa hats, crowns) — with 3D previews.
-- **Fast by default** — ants are quick, and 2× / 3× speed is free.
+- **Speed** — choose 1× or 2×; after the last box is opened, the remaining collection and return
+  trips automatically run at 5×. The next level keeps your chosen manual speed.
 - **Always up to date** — the game notices a new deployment and reloads itself on the map.
 - **Night mode** — dark grass, moonlight and a dark interface (the pictures keep their colors,
   the ant house lights its windows); automatic with the system's dark theme or on/off in the

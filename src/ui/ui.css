@@ -91,7 +91,9 @@ button { font-family: var(--font); cursor: pointer; }
   display: grid; grid-template-columns: 92px minmax(0, 1fr) 92px; align-items: start; gap: 6px;
   pointer-events: none;
 }
-.hud-top .round { width: 43px; height: 43px; border-radius: 14px; }
+.hud-top .round { flex: none; width: 43px; height: 43px; border-radius: 14px; }
+/* The pale home button needs a visible edge to read at the same size as pause. */
+.hud-left .home-btn { --c1: #fffaf0; --c2: #eddfc5; --edge: #b79d75; }
 .hud-top .speed-btn { justify-self: end; }
 .hud-title .title-row { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; }
 .hud-top > * { pointer-events: auto; }
@@ -125,6 +127,7 @@ button { font-family: var(--font); cursor: pointer; }
 .progress-mascot > img { display: block; object-fit: contain; }
 .speed-btn { flex-direction: column; gap: 0; font-size: 12px; line-height: 1; }
 .speed-btn .ico { margin-bottom: -1px; }
+.speed-btn.auto-finish:disabled { filter: none; }
 
 .boosters {
   position: absolute; left: 50%; bottom: calc(8px + var(--safe-bottom)); transform: translateX(-50%);
@@ -322,6 +325,9 @@ button { font-family: var(--font); cursor: pointer; }
 .settings-footer .settings-reset { min-height: 40px; font-size: 15px; }
 .credit-section + .credit-section { margin-top: 22px; }
 .credit-section h3 { margin: 0 0 6px; color: var(--utility-muted); font-size: 13px; font-weight: 800; }
+.credit-author strong { display: block; font-size: 18px; font-weight: 900; }
+.utility-dialog .credit-section.credit-author p { margin: 6px 0 0; }
+.credit-author a { color: var(--utility-accent); font-size: 15px; font-weight: 800; text-underline-offset: 3px; }
 .credit-list { list-style: none; margin: 0; padding: 0; }
 .credit-list li { padding: 10px 0; border-bottom: 1px solid var(--utility-line); }
 .credit-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -446,7 +452,7 @@ button { font-family: var(--font); cursor: pointer; }
 .loading .logo { text-align: center; }
 .loading h1 { margin: 12px 0 6px; font-size: 42px; font-weight: 900; color: #fff; text-shadow: 0 4px 0 rgba(60, 100, 30, 0.45); -webkit-text-stroke: 1.5px rgba(60,100,30,.5); paint-order: stroke fill; }
 .loading p { font-weight: 800; color: #3f6b2a; }
-.loading .emo { animation: bob 1.1s ease-in-out infinite; }
+.loading .brand-logo { display: block; margin: 0 auto; animation: bob 1.1s ease-in-out infinite; }
 
 @media (max-width: 380px) {
   .booster { width: 56px; height: 58px; border-radius: 16px; }

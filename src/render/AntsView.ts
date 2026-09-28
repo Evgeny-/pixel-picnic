@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type { Sim } from '../core/sim';
 import type { PieceShape } from '../core/types';
-import { pieceGeometry, pieceMaterial } from './pieces';
+import { pieceGeometry, pieceMaterial, PIECE_H } from './pieces';
 import { hatGeometry, type HatId } from './hats';
 import type { Layout } from './layout';
 import type { BoardView } from './BoardView';
 import { BoardPathPlanner } from './BoardPathPlanner';
+import { ExternalPathPlanner, queueObstacle, slotObstacle, type ObstacleRect } from './ExternalPathPlanner';
 import { CreatureGrounding } from './CreatureGrounding';
 import { createCreatureRig, type CreatureRig } from './creatureModel';
 import { CREATURES, type CreatureId } from '../core/creatures';
@@ -13,6 +14,13 @@ import { perf } from './PerformanceMonitor';
 export { antModel } from './creatureModel';
 
 const MAX_ANTS = 700;
+const REACH_DURATION = 0.18;
+const LIFT_DURATION = 0.24;
+const PICKUP_TILT = 0.1;
+const ease = (value: number): number => {
+  const t = Math.max(0, Math.min(1, value));
+  return t * t * (3 - 2 * t);
+};
 
 export interface AntCallbacks {
   onPick(cell: number): void;
@@ -26,10 +34,15 @@ interface Ant {
   pts: number[];
   cum: number[];
   dist: number;
-  phase: 'out' | 'bite' | 'home' | 'enter' | 'fade';
+  phase: 'out' | 'reach' | 'lift' | 'home' | 'enter' | 'fade';
   timer: number;
   yaw: number;
   legPhase: number;
+  gait: number;
+  /** Original piece centre, used for the continuous handoff from board to mouth. */
+  pickX: number;
+  pickY: number;
+  pickZ: number;
   startY: number;
   seed: number;
   /** cells on the final approach line that must be gone before the ant can pass (nearest first) */
@@ -81,6 +94,9 @@ export class AntsView {
   private rect = { x0: 0, x1: 0, z0: 0, z1: 0, ix0: 0, ix1: 0, iz0: 0, iz1: 0, rim: 0.2 };
   private sim: Sim;
   private pathPlanner = new BoardPathPlanner();
+  private externalPaths = new ExternalPathPlanner();
+  private tray: ObstacleRect = { x0: 0, x1: 0, z0: 0, z1: 0 };
+  private queue: ObstacleRect = { x0: 0, x1: 0, z0: 0, z1: 0 };
   /** Cubes the rules have already released for pickup. */
   private ready = new Set<number>();
   /** The ants' house: an obstacle to walk around, and the doorway they run into. */
@@ -175,20 +191,19 @@ export class AntsView {
       x0: ix0 - l.frame, z0: iz0 - l.frame, x1: ix1 + l.frame, z1: iz1 + l.frame,
       rim: Math.max(0.06, Math.min(0.2, l.cell * 0.32)) + 0.1,
     };
-    // The queue is an obstacle too: ants walk around it, never over the boxes.
-    const half = l.boxSize / 2 + 0.25;
-    const zA = l.queueZ0 - Math.sign(l.queueRow) * half;
-    const zB = l.queueZ0 + (l.queueRowsVisible + 1) * l.queueRow;
-    this.avoid = {
-      x0: l.queueCol[0] - half,
-      x1: l.queueCol[l.queueCol.length - 1] + half,
-      z0: Math.min(zA, zB),
-      z1: Math.max(zA, zB),
-    };
+    // Keep paws and tails clear of the whole tray, including empty slots. These static
+    // obstacles do not need rebuilding as boxes slide into their slots or disappear.
+    const f = this.grounding.footprint;
+    const clearance = Math.hypot(Math.max(-f.minX, f.maxX), Math.max(-f.minZ, f.maxZ)) * this.antSize + 0.06;
+    this.tray = slotObstacle(l, clearance);
+    this.queue = queueObstacle(l, clearance);
+    this.rebuildRoutes();
     this.clear();
   }
 
-  private avoid = { x0: 0, x1: 0, z0: 0, z1: 0 };
+  private rebuildRoutes(): void {
+    this.externalPaths.setObstacles([this.rect, this.house, this.tray, this.queue]);
+  }
 
   get count(): number {
     return this.ants.length;
@@ -197,6 +212,7 @@ export class AntsView {
   setHome(house: { x0: number; x1: number; z0: number; z1: number }, door: { x: number; z: number }): void {
     this.house = house;
     this.door = { x: door.x, z: door.z };
+    this.rebuildRoutes();
   }
 
   /** Remove every ant immediately (undo / restart). */
@@ -217,7 +233,7 @@ export class AntsView {
   /** The rules say this cube has just been carried off: its ant may take it now. */
   pickup(cell: number): void {
     this.ready.add(cell);
-    if (!this.ants.some((a) => a.cell === cell && (a.phase === 'out' || a.phase === 'bite'))) {
+    if (!this.ants.some((a) => a.cell === cell && (a.phase === 'out' || a.phase === 'reach'))) {
       // No ant on screen for it (e.g. too many ants): just remove the cube.
       this.board.remove(cell);
       this.ready.delete(cell);
@@ -228,25 +244,37 @@ export class AntsView {
 
   /**
    * An ant leaves a slot for `cell`. `dueIn` is how many game seconds the rules give it before the
-   * cube is carried off; the ant paces itself to arrive a moment earlier and nibbles until then.
+   * cube is carried off; the ant paces itself to arrive a moment earlier and reaches for it once.
    */
   spawn(from: THREE.Vector3, cell: number, color: number, dueIn = 2, delay = 0): void {
     if (this.ants.length >= MAX_ANTS) return;
     const seed = Math.random();
     const sx = from.x + (seed - 0.5) * 0.3;
-    const sz = from.z + 0.2;
+    const sz = from.z;
     const planStart = perf.enabled ? performance.now() : 0;
-    const plan = this.pathPlanner.plan(this.sim, this.layout, this.rect, this.antSize, cell, sx, sz);
-    if (!plan) {
+    const pts: number[] = [sx, sz];
+    if (sx > this.tray.x0 && sx < this.tray.x1 && sz > this.tray.z0 && sz < this.tray.z1) {
+      // Leave only the creature's own box, straight off the row. In landscape the queue
+      // is above the tray, so exit below it before turning towards the picture.
+      const exitZ = this.layout.mode === 'portrait' ? this.tray.z0 - 0.025 : this.tray.z1 + 0.025;
+      if (!this.externalPaths.clear(sx, sz, sx, exitZ, this.tray)) {
+        if (perf.enabled) perf.record('paths', performance.now() - planStart);
+        return;
+      }
+      pts.push(sx, exitZ);
+    }
+    const plan = this.pathPlanner.plan(this.sim, this.layout, this.rect, this.antSize, cell, pts[pts.length - 2], pts[pts.length - 1]);
+    if (!plan || !this.route(pts, plan.inside[0], plan.inside[1])) {
       if (perf.enabled) perf.record('paths', performance.now() - planStart);
       return;
     }
-    const pts: number[] = [sx, sz];
-    this.route(pts, plan.inside[0], plan.inside[1]);
     const entryIndex = pts.length / 2 - 1;
     for (let k = 2; k < plan.inside.length; k += 2) pts.push(plan.inside[k], plan.inside[k + 1]);
+    this.board.cubeWorld(cell, this.v);
     const ant: Ant = {
-      color, cell, pts, cum: [], dist: 0, phase: 'out', timer: 0, yaw: Math.PI, legPhase: seed * 6,
+      color, cell, pts, cum: [], dist: 0, phase: 'out', timer: 0,
+      yaw: Math.atan2(pts[2] - sx, pts[3] - sz), legPhase: seed * 6,
+      gait: 0, pickX: this.v.x, pickY: this.v.y - PIECE_H * this.layout.cell / 2, pickZ: this.v.z,
       startY: from.y, seed, line: plan.block, lineD: [], x: pts[0], z: pts[1], y: from.y, scale: 0.2,
       wait: 0, back: plan.inside.length / 2, spd: 1, delay,
     };
@@ -261,86 +289,13 @@ export class AntsView {
     if (perf.enabled) perf.record('paths', performance.now() - planStart);
   }
 
-  /** Append waypoints from the last point to (x, z), walking around the frame and the queue. */
-  private route(pts: number[], x: number, z: number): void {
-    const sx = pts[pts.length - 2];
-    const sz = pts[pts.length - 1];
-    const path = this.findPath(sx, sz, x, z, true) ?? this.findPath(sx, sz, x, z, false) ?? [];
-    for (const c of path) pts.push(c[0] + (Math.random() - 0.5) * 0.2, c[1] + (Math.random() - 0.5) * 0.2);
-    pts.push(x, z);
-  }
-
-  private blocked(ax: number, az: number, bx: number, bz: number, useAvoid: boolean): boolean {
-    return (
-      this.crosses(this.rect, ax, az, bx, bz) ||
-      this.crosses(this.house, ax, az, bx, bz) ||
-      (useAvoid && this.crosses(this.avoid, ax, az, bx, bz))
-    );
-  }
-
-  /** Shortest detour through up to three obstacle corners (tiny visibility graph). */
-  private findPath(sx: number, sz: number, x: number, z: number, useAvoid: boolean): number[][] | null {
-    if (!this.blocked(sx, sz, x, z, useAvoid)) return [];
-    const m = 0.3;
-    const corners: number[][] = [];
-    const addRect = (r: { x0: number; x1: number; z0: number; z1: number }) =>
-      corners.push([r.x0 - m, r.z0 - m], [r.x1 + m, r.z0 - m], [r.x1 + m, r.z1 + m], [r.x0 - m, r.z1 + m]);
-    addRect(this.rect);
-    addRect(this.house);
-    if (useAvoid) addRect(this.avoid);
-    const n = corners.length;
-    const d = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-    const s = [sx, sz];
-    const t = [x, z];
-    const free = (a: number[], b: number[]) => !this.blocked(a[0], a[1], b[0], b[1], useAvoid);
-    const fromS = corners.map((c) => free(s, c));
-    const toT = corners.map((c) => free(c, t));
-    let best: number[][] | null = null;
-    let bestLen = Infinity;
-    for (let i = 0; i < n; i++) {
-      if (!fromS[i]) continue;
-      if (toT[i]) {
-        const len = d(s, corners[i]) + d(corners[i], t);
-        if (len < bestLen) { bestLen = len; best = [corners[i]]; }
-      }
-      for (let j = 0; j < n; j++) {
-        if (j === i || !free(corners[i], corners[j])) continue;
-        const l2 = d(s, corners[i]) + d(corners[i], corners[j]);
-        if (l2 >= bestLen) continue;
-        if (toT[j]) {
-          const len = l2 + d(corners[j], t);
-          if (len < bestLen) { bestLen = len; best = [corners[i], corners[j]]; }
-        }
-        for (let k = 0; k < n; k++) {
-          if (k === i || k === j || !toT[k] || !free(corners[j], corners[k])) continue;
-          const len = l2 + d(corners[j], corners[k]) + d(corners[k], t);
-          if (len < bestLen) { bestLen = len; best = [corners[i], corners[j], corners[k]]; }
-        }
-      }
-    }
-    return best;
-  }
-
-  /** Liang–Barsky test: does the segment pass through the (slightly shrunk) rectangle? */
-  private crosses(r: { x0: number; x1: number; z0: number; z1: number }, ax: number, az: number, bx: number, bz: number): boolean {
-    const e = 0.05;
-    const x0 = r.x0 + e, x1 = r.x1 - e, z0 = r.z0 + e, z1 = r.z1 - e;
-    let t0 = 0;
-    let t1 = 1;
-    const dx = bx - ax;
-    const dz = bz - az;
-    const p = [-dx, dx, -dz, dz];
-    const q = [ax - x0, x1 - ax, az - z0, z1 - az];
-    for (let i = 0; i < 4; i++) {
-      if (p[i] === 0) {
-        if (q[i] < 0) return false;
-      } else {
-        const t = q[i] / p[i];
-        if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
-        else { if (t < t0) return false; if (t < t1) t1 = t; }
-      }
-    }
-    return t1 - t0 > 1e-4;
+  /** Append a safe route around the picture, house, active tray and queue. */
+  private route(pts: number[], x: number, z: number): boolean {
+    const path = this.externalPaths.route(pts[pts.length - 2], pts[pts.length - 1], x, z);
+    if (!path) return false;
+    // Do not jitter obstacle corners: that can push a safe route back through a box.
+    pts.push(...path);
+    return true;
   }
 
   private measure(a: Ant): void {
@@ -373,7 +328,14 @@ export class AntsView {
     for (let k = a.pts.length / 2 - 1; k >= first; k--) pts.push(a.pts[k * 2], a.pts[k * 2 + 1]);
     // Around the house to the doorstep, then straight in through the door.
     const dx = this.door.x + (Math.random() - 0.5) * 0.08;
-    this.route(pts, dx, this.door.z + 0.35);
+    if (!this.route(pts, dx, this.door.z + 0.18)) {
+      // A malformed layout must not send a creature through an obstacle or stall the level.
+      a.phase = 'fade';
+      a.timer = 0;
+      this.cb.onDeliver();
+      if (perf.enabled) perf.record('paths', performance.now() - planStart);
+      return;
+    }
     pts.push(dx, this.door.z);
     a.pts = pts;
     a.line = [];
@@ -381,12 +343,14 @@ export class AntsView {
     this.measure(a);
     a.dist = 0;
     a.phase = 'home';
+    a.timer = 0;
     a.startY = 0;
     if (perf.enabled) perf.record('paths', performance.now() - planStart);
   }
 
   update(dt: number, time: number): void {
     const spd = 3.3 * this.speed;
+    const gaitBlend = 1 - Math.exp(-dt * this.speed * 18);
     const keep: Ant[] = [];
     for (const a of this.ants) {
       if (a.delay > 0) {
@@ -408,7 +372,9 @@ export class AntsView {
           }
         }
         const before = a.dist;
-        a.dist = Math.min(limit, a.dist + spd * dt * (a.phase === 'out' ? a.spd : 1) * (0.95 + a.seed * 0.1));
+        if (a.phase === 'home') a.timer += dt * this.speed;
+        const pace = a.phase === 'out' ? a.spd : ease(a.timer / 0.18);
+        a.dist = Math.min(limit, a.dist + spd * dt * pace * (0.95 + a.seed * 0.1));
         if (a.dist < before) a.dist = before;
         moving = a.dist > before + 1e-5;
         if (!moving && a.dist < total - 1e-4) {
@@ -419,23 +385,28 @@ export class AntsView {
         this.posAt(a, a.dist);
         if (a.dist >= total - 1e-4) {
           if (a.phase === 'out') {
-            a.phase = 'bite';
+            a.phase = 'reach';
             a.timer = 0;
-            this.board.wobble(a.cell);
           } else {
             a.phase = 'enter';
             a.timer = 0;
           }
         }
-      } else if (a.phase === 'bite') {
-        // Nibble until the rules say the cube is carried off.
+      } else if (a.phase === 'reach') {
+        // One gentle lean, then a still hold if the simulation has not released the piece yet.
+        const wasReaching = a.timer < REACH_DURATION;
         a.timer += dt * this.speed;
-        if (a.timer > 0.15 && this.ready.has(a.cell)) {
+        if (wasReaching) this.board.setPickupProgress(a.cell, a.timer / REACH_DURATION);
+        if (a.timer >= REACH_DURATION && this.ready.has(a.cell)) {
           this.ready.delete(a.cell);
           this.board.remove(a.cell);
           this.cb.onPick(a.cell);
-          this.goHome(a);
+          a.phase = 'lift';
+          a.timer = 0;
         }
+      } else if (a.phase === 'lift') {
+        a.timer += dt * this.speed;
+        if (a.timer >= LIFT_DURATION) this.goHome(a);
       } else if (a.phase === 'enter') {
         a.timer += dt * this.speed;
         if (a.timer > 0.22) {
@@ -448,11 +419,9 @@ export class AntsView {
       }
       // heading
       const i = Math.min(a.cum.length - 1, Math.max(1, a.cum.findIndex((c) => c >= a.dist)));
-      const dx = a.pts[i * 2] - a.pts[(i - 1) * 2];
-      const dz = a.pts[i * 2 + 1] - a.pts[(i - 1) * 2 + 1];
-      if (a.phase === 'bite') {
-        // face the cube
-      } else if (dx * dx + dz * dz > 1e-6) {
+      const dx = a.phase === 'reach' ? a.pickX - a.x : a.pts[i * 2] - a.pts[(i - 1) * 2];
+      const dz = a.phase === 'reach' ? a.pickZ - a.z : a.pts[i * 2 + 1] - a.pts[(i - 1) * 2 + 1];
+      if (a.phase !== 'lift' && dx * dx + dz * dz > 1e-6) {
         const want = Math.atan2(dx, dz);
         let d = want - a.yaw;
         while (d > Math.PI) d -= Math.PI * 2;
@@ -460,6 +429,7 @@ export class AntsView {
         a.yaw += d * Math.min(1, dt * 14);
       }
       if (moving) a.legPhase += dt * (this.creature === 'ant' ? spd * 9 : Math.min(spd, 6) * 4);
+      a.gait += ((moving ? 1 : 0) - a.gait) * gaitBlend;
       // Keep the whole body and animated tail above the rim until the last part clears it.
       // The footprint ramps up before contact; easing must never sink below that clearance.
       let y = this.grounding.heightAt(a.x, a.z, a.yaw, this.antSize, this.rect);
@@ -487,9 +457,11 @@ export class AntsView {
     const cell = this.layout.cell;
     for (const a of this.ants) {
       const sc = (a as Ant & { _s: number })._s * size;
-      const bob = Math.sin(a.legPhase * 2) * 0.012 * size;
-      const biteTilt = a.phase === 'bite' ? Math.sin(a.timer * 40) * 0.25 : 0;
-      this.e.set(biteTilt * 0.5, a.yaw, 0);
+      const bob = Math.sin(a.legPhase * 2) * 0.012 * size * a.gait;
+      const lift = a.phase === 'lift' ? ease(a.timer / LIFT_DURATION) : 1;
+      const lean = a.phase === 'reach' ? ease(a.timer / REACH_DURATION) : a.phase === 'lift' ? 1 - lift : 0;
+      // Pitch around the creature's local sideways axis, whichever way it faces.
+      this.e.set(lean * PICKUP_TILT, a.yaw, 0, 'YXZ');
       this.q.setFromEuler(this.e);
       this.v.set(a.x, a.y + bob, a.z);
       this.s.set(sc, sc, sc);
@@ -502,18 +474,18 @@ export class AntsView {
       this.details?.setMatrixAt(n, this.m);
       if (this.tail && this.rig.tail) {
         const p = this.rig.tail.pivot;
-        this.e.set(0, Math.sin(a.legPhase * 0.5 + a.seed * 6) * 0.28, 0);
+        this.e.set(0, Math.sin(a.legPhase * 0.5 + a.seed * 6) * 0.28, 0, 'XYZ');
         this.q.setFromEuler(this.e);
         this.v.set(p.x, p.y, p.z);
         this.m2.compose(this.v, this.q, this.one).premultiply(this.m);
         this.tail.setMatrixAt(n, this.m2);
       }
       for (const pose of this.rig.legPoses) {
-        const swing = Math.sin(a.legPhase + pose.phase) * 0.38;
-        const lift = Math.max(0, Math.cos(a.legPhase + pose.phase)) * 0.22;
+        const swing = Math.sin(a.legPhase + pose.phase) * 0.38 * a.gait;
+        const lift = Math.max(0, Math.cos(a.legPhase + pose.phase)) * 0.22 * a.gait;
         // Ant legs sweep sideways; paws swing forward and lift together with the gait.
-        if (this.creature === 'ant') this.e.set(0, pose.yaw - pose.side * swing, lift);
-        else this.e.set(swing, pose.yaw, 0);
+        if (this.creature === 'ant') this.e.set(0, pose.yaw - pose.side * swing, lift, 'XYZ');
+        else this.e.set(swing, pose.yaw, 0, 'XYZ');
         this.q.setFromEuler(this.e);
         this.v.set(pose.x, pose.y + (this.creature === 'ant' ? 0 : lift * 0.22), pose.z);
         this.m2.compose(this.v, this.q, this.one);
@@ -522,14 +494,22 @@ export class AntsView {
         this.legs.setColorAt(legN, this.legColors[a.color]);
         legN++;
       }
-      if (a.phase === 'home' || a.phase === 'enter') {
+      if (a.phase === 'lift' || a.phase === 'home' || a.phase === 'enter') {
         const cs = Math.min(cell * 0.8, sc * 0.55);
         const fwd = 0.62 * sc;
-        this.v.set(a.x + Math.sin(a.yaw) * fwd, a.y + 0.34 * sc + (cs * 0.62) / 2, a.z + Math.cos(a.yaw) * fwd);
-        this.e.set(0, a.yaw, 0);
+        const sinYaw = Math.sin(a.yaw), cosYaw = Math.cos(a.yaw);
+        const x = a.x + sinYaw * fwd;
+        const y = a.y + bob + 0.34 * sc + (cs * PIECE_H) / 2;
+        const z = a.z + cosYaw * fwd;
+        // The first carried frame exactly replaces the board piece, then eases to the mouth.
+        this.v.set(a.pickX + (x - a.pickX) * lift,
+          a.pickY + (y - a.pickY) * lift + 0.08 * sc * 4 * lift * (1 - lift),
+          a.pickZ + (z - a.pickZ) * lift);
+        this.e.set(0, Math.atan2(sinYaw, cosYaw) * lift, 0, 'XYZ');
         this.q.setFromEuler(this.e);
         const k = a.phase === 'enter' ? Math.max(0.01, 1 - a.timer / 0.22) : 1;
-        this.s.set(cs * k, cs * k, cs * k);
+        const carriedSize = (cell + (cs - cell) * lift) * k;
+        this.s.set(carriedSize, carriedSize, carriedSize);
         this.m.compose(this.v, this.q, this.s);
         this.cubes.setMatrixAt(cubeN, this.m);
         this.cubes.setColorAt(cubeN, this.board.cubeColor(a.cell));

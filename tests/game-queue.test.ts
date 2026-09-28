@@ -31,7 +31,7 @@ function setup(levelOverride?: LevelDef) {
     setSim: vi.fn(), relayout: vi.fn(),
   };
   const hooks: GameHooks = { onWin: vi.fn(), onStuck: vi.fn(), onProgress: vi.fn(), onToast: vi.fn(), onChange: vi.fn() };
-  return { game: new Game(view as unknown as GameView, level, {} as WorldTheme, hooks), pending, hooks };
+  return { game: new Game(view as unknown as GameView, level, {} as WorldTheme, hooks), pending, hooks, view };
 }
 
 describe('Game queued dispatch', () => {
@@ -152,5 +152,95 @@ describe('magnet and planned dispatches', () => {
     game.update(0.4, 2.4);
     expect(game.sim.status).toBe('stuck');
     expect(hooks.onStuck).toHaveBeenCalledOnce();
+  });
+});
+
+describe('automatic finish speed', () => {
+  it('waits until queued boxes actually enter the slots before switching to 5×', () => {
+    const { game, view, hooks } = setup();
+    game.speed = 2;
+    game.tap(0, 0); game.tap(1, 0); game.tap(2, 0);
+    expect(game.pendingBoxes.size).toBe(2);
+    expect(game.autoFinishing).toBe(false);
+    expect(game.effectiveSpeed).toBe(2);
+    for (let i = 0; i < 4; i++) {
+      expect(game.autoFinishing).toBe(false);
+      game.update(0.2, i * 0.2);
+    }
+    expect(game.sim.queueSize()).toBe(0);
+    expect(game.pendingBoxes.size).toBe(0);
+    expect(game.autoFinishing).toBe(true);
+    expect(view.ants.speed).toBe(5);
+    expect(game.speed).toBe(2);
+    expect(hooks.onWin).not.toHaveBeenCalled();
+  });
+
+  it('includes unopened boxes below the visible queue rows', () => {
+    const level: LevelDef = {
+      n: 1, world: 0, tier: 'normal', slots: 4, visibleRows: 1,
+      picture: { id: 'deep-queue', w: 4, h: 1, palette: ['#f44'], cells: '0000' },
+      boxes: Array.from({ length: 4 }, (_, id) => ({ id, color: 0, count: 1 })), columns: [[0, 1, 2, 3]],
+    };
+    const { game } = setup(level);
+    for (const id of [0, 1, 2]) {
+      game.takeBox(id);
+      expect(game.autoFinishing).toBe(false);
+    }
+    game.takeBox(3);
+    expect(game.effectiveSpeed).toBe(5);
+  });
+
+  it('accelerates the last collection and return trips without awarding an early win', () => {
+    const { game, view, hooks } = setup();
+    game.speed = 2;
+    view.isIdle = () => false;
+    game.tap(0, 0); game.tap(1, 0); game.tap(2, 0);
+    for (let i = 0; i < 100; i++) game.update(0.1, i * 0.1);
+    expect(game.sim.left).toBe(0);
+    expect(game.sim.status).toBe('won');
+    expect(game.status).toBe('playing');
+    expect(view.ants.speed).toBe(5);
+    expect(game.speed).toBe(2);
+    expect(hooks.onWin).not.toHaveBeenCalled();
+    view.isIdle = () => true;
+    game.update(0.1, 10);
+    expect(hooks.onWin).toHaveBeenCalledOnce();
+    expect(game.status).toBe('won');
+  });
+
+  it('keeps pause and undo working and restores the chosen manual speed', () => {
+    const { game, view } = setup();
+    game.speed = 2;
+    game.tap(0, 0); game.tap(1, 0); game.tap(2, 0);
+    for (let i = 0; i < 4; i++) game.update(0.2, i * 0.2);
+    expect(game.effectiveSpeed).toBe(5);
+    game.paused = true;
+    const round = game.sim.roundNo, time = game.playTime;
+    game.update(2, 3);
+    expect(game.sim.roundNo).toBe(round);
+    expect(game.playTime).toBe(time);
+    expect(view.update).toHaveBeenLastCalledWith(0, 3);
+    game.paused = false;
+    expect(game.use('undo')).toBe(true);
+    expect(game.sim.queueSize()).toBe(1);
+    expect(game.autoFinishing).toBe(false);
+    expect(game.effectiveSpeed).toBe(2);
+    game.update(0, 3);
+    expect(view.ants.speed).toBe(2);
+  });
+
+  it('never treats an empty queue as a win if the remaining cubes are unreachable', () => {
+    const { game, hooks } = setup({
+      n: 1, world: 0, tier: 'normal', slots: 1,
+      picture: { id: 'closed', w: 1, h: 1, palette: ['#f44'], cells: '0' },
+      fences: (['top', 'bottom', 'left', 'right'] as const).map((side) => ({ side, from: 0, to: 1 })),
+      boxes: [{ id: 0, color: 0, count: 1 }], columns: [[0]],
+    });
+    game.takeBox(0);
+    game.update(0.1, 0.1);
+    expect(game.sim.left).toBe(1);
+    expect(game.status).toBe('stuck');
+    expect(game.autoFinishing).toBe(false);
+    expect(hooks.onWin).not.toHaveBeenCalled();
   });
 });

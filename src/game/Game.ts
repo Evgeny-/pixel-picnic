@@ -36,7 +36,8 @@ export class Game {
   readonly view: GameView;
   private hooks: GameHooks;
   private acc = 0;
-  speed = 1;
+  /** Player preference; the automatic finish never overwrites it. */
+  speed: 1 | 2 = 1;
   paused = false;
   /** Seconds played (not paused), for the speed bonus. */
   playTime = 0;
@@ -74,6 +75,15 @@ export class Game {
 
   get status(): 'playing' | 'won' | 'stuck' {
     return this.finished ?? 'playing';
+  }
+
+  /** Include deeper queue rows: a box marked for dispatch still needs to be opened. */
+  get autoFinishing(): boolean {
+    return this.taps > 0 && this.sim.queueSize() === 0 && this.sim.status !== 'stuck' && this.finished !== 'stuck';
+  }
+
+  get effectiveSpeed(): 1 | 2 | 5 {
+    return this.autoFinishing ? 5 : this.speed;
   }
 
   /** Planned group positions, also useful to render an accessible queue summary. */
@@ -215,7 +225,7 @@ export class Game {
   update(dt: number, time: number): void {
     if (!this.paused && this.sim.status === 'playing') {
       this.playTime += dt;
-      this.acc += dt * this.speed;
+      this.acc += dt * this.effectiveSpeed;
       let guard = 0;
       while (this.acc >= ROUND && guard++ < 8) {
         this.acc -= ROUND;
@@ -230,7 +240,7 @@ export class Game {
         }
       }
     }
-    this.view.ants.speed = this.speed;
+    this.view.ants.speed = this.effectiveSpeed;
     this.view.update(this.paused ? 0 : dt, time);
     if (this.winPending && this.view.isIdle()) {
       this.winPending = false;

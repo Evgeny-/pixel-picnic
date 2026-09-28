@@ -65,7 +65,7 @@ export class Hud {
 
   constructor(root: HTMLElement, cb: HudCallbacks) {
     this.el = h('div', { class: 'hud' });
-    const pause = h('button', { class: 'btn round', html: lineIcon('pause', 26), attrs: { 'aria-label': 'pause' } });
+    const pause = h('button', { class: 'btn round', html: lineIcon('pause', 24), attrs: { 'aria-label': 'pause' } });
     pause.addEventListener('click', () => {
       audio.play('button');
       cb.onPause();
@@ -140,8 +140,15 @@ export class Hud {
     this.progAnt.style.left = `${(k * 100).toFixed(2)}%`;
   }
 
-  setSpeed(s: number): void {
-    this.speedBtn.innerHTML = `${lineIcon(s === 1 ? 'play' : 'ff', 22)}<span>${s}x</span>`;
+  setSpeed(s: number, automatic = false): void {
+    this.speedBtn.innerHTML = `${lineIcon(s === 1 ? 'play' : 'ff', 22)}<span>${s}×</span>`;
+    this.speedBtn.disabled = automatic;
+    this.speedBtn.classList.toggle('auto-finish', automatic);
+    this.speedBtn.classList.toggle('white', !automatic);
+    this.speedBtn.classList.toggle('green', automatic);
+    const label = automatic ? t('finishingSpeed') : `${t('speed')} · ${s}×`;
+    this.speedBtn.setAttribute('aria-label', label);
+    this.speedBtn.title = label;
   }
 
   setBoosters(state: Record<BoosterId, BoosterView>): void {

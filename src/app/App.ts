@@ -30,6 +30,7 @@ import {
 } from '../core/progression';
 import type { LevelDef } from '../core/types';
 import { openLooksShop, type ShopTab } from '../ui/LooksShop';
+import { ShopPurchaseSession } from '../ui/ShopPurchaseSession';
 import { openCreaturePicker } from '../ui/CreaturePicker';
 import type { HatId } from '../render/hats';
 import { isCreatureId } from '../core/creatures';
@@ -60,6 +61,7 @@ export class App {
   private last = 0;
   private rescued = false;
   private tutorial = 0;
+  private queueHintShown = false;
   private loadingEl: HTMLElement | null = null;
 
   private darkQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
@@ -84,7 +86,7 @@ export class App {
     this.loadingEl = h(
       'div',
       { class: 'loading' },
-      h('div', { class: 'logo', html: `${emoji('ant', 96)}<h1>${t('title')}</h1><p>${t('loading')}</p>` }),
+      h('div', { class: 'logo', html: `<img class="brand-logo" src="${import.meta.env.BASE_URL}logo.svg" width="96" height="96" alt=""><h1>${t('title')}</h1><p>${t('loading')}</p>` }),
     );
     document.getElementById('app')!.append(this.loadingEl);
     if (this.save.settings.lang) setLang(this.save.settings.lang);
@@ -339,7 +341,7 @@ export class App {
       onChange: () => this.refreshBoosters(),
     });
     this.game.speed = this.save.settings.speed;
-    this.hud.setSpeed(this.game.speed);
+    this.hud.setSpeed(this.game.effectiveSpeed, this.game.autoFinishing);
     this.refreshBoosters();
     audio.startMusic(theme.music);
     if (level.tier !== 'normal') {
@@ -403,8 +405,8 @@ export class App {
   }
 
   private cycleSpeed(): void {
-    if (!this.game) return;
-    const s = this.game.speed >= 3 ? 1 : this.game.speed + 1;
+    if (!this.game || this.game.autoFinishing) return;
+    const s = this.game.speed === 1 ? 2 : 1;
     this.game.speed = s;
     this.save.settings.speed = s;
     writeSave(this.save);
@@ -412,6 +414,10 @@ export class App {
   }
 
   private toast(k: 'blocked' | 'frozen' | 'slots' | 'link' | 'nohint' | 'grab' | 'queued' | 'unqueued'): void {
+    if (k === 'queued') {
+      if (this.queueHintShown) return;
+      this.queueHintShown = true;
+    }
     const map = {
       blocked: 'toastBlocked',
       frozen: 'toastFrozen',
@@ -482,6 +488,7 @@ export class App {
 
   private refreshBoosters(): void {
     this.hud?.setBoosters(this.boosterState());
+    if (this.game) this.hud?.setSpeed(this.game.effectiveSpeed, this.game.autoFinishing);
   }
 
   private onBooster(b: BoosterId): void {
@@ -527,6 +534,13 @@ export class App {
 
   private openLooksShop(tab: ShopTab): void {
     openLooksShop(this.save, tab, () => {
+      // A choice in the shop supersedes a cosmetic preset used to open a test link.
+      const url = new URL(location.href);
+      if (url.searchParams.has('looks') || url.searchParams.has('creature')) {
+        url.searchParams.delete('looks');
+        url.searchParams.delete('creature');
+        history.replaceState(history.state, '', url);
+      }
       this.map.refreshTop(this.save.coins);
       this.map.setCreature(this.save.settings.creature ?? 'ant');
     }, this.ui);
@@ -534,6 +548,7 @@ export class App {
 
   private openShop(b: BoosterId, fromStuck = false): void {
     const price = BOOSTER_PRICE[b];
+    const purchases = new ShopPurchaseSession(this.save);
     const g = this.game;
     if (g) g.paused = true;
     const art = h('div', { class: 'mech-art', html: boosterArt(b) });
@@ -546,13 +561,11 @@ export class App {
           label: `${t('buy')} <span class="price">${emoji('coin', 26)} ${price}</span>`,
           cls: 'green',
           onClick: () => {
-            if (this.save.coins < price) {
+            if (!purchases.buy(`booster:${b}`, price, () => { this.save.boosters[b]++; })) {
               audio.play('invalid');
               toast(this.ui, t('notEnough'));
               return false;
             }
-            this.save.coins -= price;
-            this.save.boosters[b]++;
             writeSave(this.save);
             audio.play('coin');
             if (g) g.paused = false;
@@ -565,6 +578,7 @@ export class App {
         if (g) g.paused = false;
         if (fromStuck && g?.status === 'stuck') this.onStuck();
       },
+      onDispose: () => purchases.reset(),
     });
   }
 
@@ -721,8 +735,8 @@ export class App {
     this.stopAuto();
     const g = this.game;
     if (!g) return;
-    g.speed = 3;
-    this.hud?.setSpeed(3);
+    g.speed = 2;
+    this.hud?.setSpeed(g.effectiveSpeed, g.autoFinishing);
     this.autoTimer = window.setInterval(() => {
       if (this.game !== g) return this.stopAuto();
       if (dialogOpen()) return;
@@ -874,6 +888,9 @@ export class App {
     const link = (text: string, href: string) => h('a', { text, attrs: { href, target: '_blank', rel: 'noopener noreferrer' } });
     const entry = (name: string, url: string, license: string, licenseUrl: string, note?: string) =>
       h('li', {}, h('div', { class: 'credit-line' }, link(name, url), link(license, licenseUrl)), note && h('small', { text: note }));
+    const author = h('section', { class: 'credit-section credit-author' },
+      h('h3', { text: t('creditAuthor') }), h('strong', { text: t('creditAuthorName') }),
+      h('p', {}, link(t('creditSource'), 'https://github.com/Evgeny-/pixel-picnic')));
     const pictures = h('section', { class: 'credit-section' }, h('h3', { text: t('creditPictures') }),
       h('ul', { class: 'credit-list' },
         entry('Microsoft Fluent Emoji', 'https://github.com/microsoft/fluentui-emoji', 'MIT', 'https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE'),
@@ -887,7 +904,7 @@ export class App {
       title: t('credits'),
       head: 'blue',
       cls: 'utility-dialog credits-dialog',
-      body: [h('div', { class: 'utility-content' }, pictures, tools,
+      body: [h('div', { class: 'utility-content' }, author, pictures, tools,
         h('section', { class: 'credit-section' }, h('h3', { text: t('creditAudio') }), h('p', { text: t('creditAudioNote') })))],
       onClose: () => undefined,
       buttons: [{ label: t('close'), cls: 'white small utility-done', onClick: () => undefined }],

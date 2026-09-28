@@ -107,6 +107,7 @@ export class QueueView {
       );
       mesh.rotation.x = -Math.PI / 2;
       mesh.renderOrder = 5;
+      mesh.visible = false;
       this.group.add(mesh);
       this.more.push({ mesh, label });
     }
@@ -115,6 +116,7 @@ export class QueueView {
 
   private makeBox(id: number): BoxVis {
     const group = new THREE.Group();
+    group.visible = false;
     const color = this.colors[this.sim.boxColor(id)];
     const body = this.boxStyle.createBody(color);
     const mat = body.material;
@@ -137,7 +139,7 @@ export class QueueView {
       id, group, body, mat, label, labelStyle: this.digitStyles[this.sim.boxColor(id)], labelMesh, ice, color,
       hiddenShown: false, where: 'queue',
       from: new THREE.Vector3(), to: new THREE.Vector3(), t: 1, dur: 0.001, arc: 0,
-      shake: 0, flip: 0, pop: 0, bump: 0, hint: 0, fade: 1, row: 0,
+      shake: 0, flip: 0, pop: 0, bump: 0, hint: 0, fade: 0, row: 0,
     };
   }
 
@@ -245,11 +247,29 @@ export class QueueView {
     for (const b of this.boxes.values()) {
       const { where, row } = this.targetOf(b.id, this.tmp);
       const wasGone = b.where === 'gone';
+      if (!animate) {
+        // Loading, resize and undo already know the final visible rows. Do not animate
+        // hidden boxes out of a default visible state on the first few frames.
+        b.where = where;
+        b.row = row;
+        if (where !== 'gone') b.to.copy(this.tmp);
+        b.from.copy(b.to);
+        b.group.position.copy(b.to);
+        b.t = 1;
+        b.arc = b.shake = b.flip = b.pop = b.bump = 0;
+        b.fade = where === 'gone' || (where === 'queue' && row >= this.layout.queueRowsVisible) ? 0 : 1;
+        b.group.visible = b.fade === 1;
+        b.group.scale.setScalar(this.layout.boxSize);
+        b.body.position.x = 0;
+        b.body.rotation.x = 0;
+        b.labelMesh.position.set(0, BOX_H + 0.012, BOX_LABEL_Z);
+        b.labelMesh.visible = b.group.visible;
+        continue;
+      }
       if (where === 'gone') {
         if (b.where !== 'gone') {
           b.where = 'gone';
-          if (!animate) b.group.visible = false;
-          else b.pop = Math.max(b.pop, 0.0001);
+          b.pop = Math.max(b.pop, 0.0001);
         }
         continue;
       }
@@ -260,21 +280,21 @@ export class QueueView {
       const moved = !b.to.equals(this.tmp) || b.where !== where;
       b.row = row;
       if (moved) {
-        b.from.copy(animate ? b.group.position : this.tmp);
+        b.from.copy(b.group.position);
         b.to.copy(this.tmp);
         b.t = 0;
         const jump = where === 'slot' && b.where === 'queue';
-        b.dur = animate ? (jump ? 0.42 : 0.26) : 0.0001;
+        b.dur = jump ? 0.42 : 0.26;
         b.arc = jump ? 1.4 : 0;
-        if (!animate) b.group.position.copy(this.tmp);
       }
       b.where = where;
     }
-    this.refreshLabels();
+    this.refreshLabels(animate);
+    if (!animate) this.links.update(this.layout.boxSize);
   }
 
-  refreshLabels(): void {
-    for (const b of this.boxes.values()) this.refreshLabel(b);
+  refreshLabels(animateReveal = true): void {
+    for (const b of this.boxes.values()) this.refreshLabel(b, animateReveal);
     if (!this.layout) return;
     this.links.sync(this.sim, this.layout, (column) => this.columnX(column));
     this.more.forEach((m, c) => {
@@ -287,7 +307,7 @@ export class QueueView {
     });
   }
 
-  private refreshLabel(b: BoxVis): void {
+  private refreshLabel(b: BoxVis, animateReveal: boolean): void {
     const hidden = this.sim.boxHidden[b.id] === 1;
     const frozen = this.sim.isFrozen(b.id);
     if (hidden) {
@@ -302,7 +322,7 @@ export class QueueView {
         b.hiddenShown = false;
         b.mat.map = null;
         b.mat.needsUpdate = true;
-        b.flip = 1;
+        b.flip = animateReveal ? 1 : 0;
       }
       b.mat.color.copy(b.color);
       b.mat.emissive.copy(b.color);

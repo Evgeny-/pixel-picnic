@@ -60,8 +60,10 @@ function portrait(inp: LayoutInput): Layout {
   const rows = inp.rows;
   const stack = (grow: number) => {
     const k = 1 + 0.28 * grow;
-    const nestZ = 2.0 + 0.45 * grow;
-    const slotZ = nestZ + 1.82 + 0.4 * grow;
+    const nestZ = 2.2 + 0.3 * grow;
+    // Leave a walking lane in front of the door, including the igloo's long entrance.
+    // Box lids project towards the picture in this camera, so their height needs air too.
+    const slotZ = nestZ + 3.0 + 0.3 * grow;
     const queueZ0 = slotZ + 2.05 * k + 0.3 * grow;
     const row = ROW * k;
     return { k, nestZ, slotZ, queueZ0, row, maxZ: queueZ0 + (rows - 0.4) * row + 0.45 };

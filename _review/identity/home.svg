@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Pixel Picnic: общий домик</title>
+  <defs>
+    <linearGradient id="field" x2="0" y2="1"><stop stop-color="#b7a0ff"/><stop offset="1" stop-color="#8160d3"/></linearGradient>
+    <linearGradient id="roof" x2="0" y2="1"><stop stop-color="#ff9a6b"/><stop offset="1" stop-color="#f26849"/></linearGradient>
+    <linearGradient id="wall" x2="0" y2="1"><stop stop-color="#fff6d7"/><stop offset="1" stop-color="#f2d99e"/></linearGradient>
+    <linearGradient id="blue" x2="0" y2="1"><stop stop-color="#7cdbff"/><stop offset="1" stop-color="#44acf5"/></linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="29" fill="url(#field)"/>
+  <path d="M17 21Q64 3 111 21" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="64" cy="108" rx="45" ry="7" fill="#443072" opacity=".24"/>
+  <rect x="83" y="28" width="13" height="28" rx="3" fill="#ba523f"/>
+  <rect x="81" y="25" width="17" height="7" rx="2" fill="#ffc695"/>
+  <rect x="29" y="48" width="70" height="54" rx="9" fill="#bda167"/>
+  <rect x="29" y="44" width="70" height="54" rx="9" fill="url(#wall)"/>
+  <path d="M53 98V80a11 11 0 0 1 22 0v18" fill="#87603b"/>
+  <path d="M57 98V81a7 7 0 0 1 14 0v17" fill="#463640"/>
+  <rect x="39" y="62" width="10" height="12" rx="3" fill="#ffce52"/>
+  <rect x="79" y="62" width="10" height="12" rx="3" fill="#ffce52"/>
+  <path d="m18 53 41-31q5-4 10 0l41 31q4 4 0 9-3 3-7 0L64 33 25 62q-4 3-7-1-3-4 0-8" fill="#ac4338"/>
+  <path d="m18 49 41-31q5-4 10 0l41 31q4 4 0 9-3 3-7 0L64 29 25 58q-4 3-7-1-3-4 0-8" fill="url(#roof)"/>
+  <path d="m25 49 36-27q3-2 6 0l34 26" fill="none" stroke="#ffc49a" stroke-width="3" stroke-linecap="round"/>
+  <g transform="rotate(-8 32 94)">
+    <rect x="20" y="84" width="24" height="26" rx="5" fill="#d3941b"/>
+    <rect x="20" y="80" width="24" height="24" rx="5" fill="#ffdc62"/>
+    <path d="M25 84h14" stroke="#fff3b9" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <g transform="rotate(8 96 95)">
+    <rect x="84" y="85" width="24" height="26" rx="5" fill="#297db9"/>
+    <rect x="84" y="81" width="24" height="24" rx="5" fill="url(#blue)"/>
+    <path d="M89 85h14" stroke="#d8f6ff" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <path d="M55 102h18" stroke="#ffefc3" stroke-width="5" stroke-linecap="round"/>
+</svg>
