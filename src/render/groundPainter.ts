@@ -173,6 +173,59 @@ export function paintGround(theme: WorldTheme, size = 1024, seed = 7): HTMLCanva
   blobs(g, rng, size, gr.tints, 160, 25 * k, 70 * k, 0.35);
 
   switch (gr.kind) {
+    case 'paving': {
+      const width = size / 8;
+      const height = size / 16;
+      g.lineWidth = 1.5 * k;
+      for (let row = 0; row < 16; row++) for (let col = -1; col < 9; col++) {
+        const x = col * width + (row % 2) * width / 2;
+        const y = row * height;
+        g.fillStyle = rng.pick(gr.tints);
+        g.beginPath();
+        g.roundRect(x + 2 * k, y + 2 * k, width - 4 * k, height - 4 * k, 7 * k);
+        g.fill();
+        g.strokeStyle = hexA(gr.detail[0], 0.28);
+        g.stroke();
+        g.strokeStyle = hexA(gr.detail[1], 0.45);
+        g.beginPath(); g.moveTo(x + 9 * k, y + 5 * k); g.lineTo(x + width - 9 * k, y + 5 * k); g.stroke();
+      }
+      scatter(size, rng, 22, 5 * k, (x, y) => pebble(g, x, y, rng.range(2, 4) * k, rng.pick(gr.accents), rng));
+      break;
+    }
+    case 'planks': {
+      const height = size / 10;
+      for (let row = 0; row < 10; row++) {
+        const y = row * height;
+        g.fillStyle = rng.pick(gr.tints);
+        g.fillRect(0, y + 2 * k, size, height - 4 * k);
+        g.strokeStyle = hexA(gr.detail[0], 0.2);
+        g.lineWidth = 1.2 * k;
+        for (let line = 0; line < 7; line++) {
+          const gy = y + (line + 1) * height / 8;
+          g.beginPath(); g.moveTo(0, gy);
+          g.bezierCurveTo(size / 3, gy + 4 * k, size * 2 / 3, gy - 4 * k, size, gy);
+          g.stroke();
+        }
+        for (let joint = 0; joint < 2; joint++) {
+          const x = ((row % 3) / 3 + joint) * size / 2;
+          g.fillStyle = hexA(gr.detail[0], 0.3);
+          g.fillRect(x, y, 2 * k, height);
+        }
+      }
+      break;
+    }
+    case 'clouds': {
+      blobs(g, rng, size, gr.tints, 55, 45 * k, 120 * k, 0.65);
+      scatter(size, rng, 18, 100 * k, (x, y) => {
+        g.fillStyle = hexA('#ffffff', 0.15);
+        for (let puff = 0; puff < 3; puff++) {
+          g.beginPath();
+          g.ellipse(x + (puff - 1) * 27 * k, y, (45 - Math.abs(puff - 1) * 9) * k, (23 + puff * 3) * k, 0, 0, Math.PI * 2);
+          g.fill();
+        }
+      });
+      break;
+    }
     case 'grass': {
       blades(g, rng, size, gr.detail, 14000, [7 * k, 15 * k], [1.4 * k, 2.8 * k]);
       scatter(size, rng, 70, 20 * k, (x, y) => clover(g, x, y, rng.range(4, 6.5) * k, rng.pick(['#6fb34a', '#5ea43f', '#7fc257']), rng.next() * 6));

@@ -72,6 +72,17 @@ const THEMES: Theme[] = [
   { bpm: 84, root: 62, chords: [[0, 3, 7], [-2, 2, 5], [-5, -2, 2], [-7, -3, 0]], scale: [0, 2, 3, 5, 7, 9], lead: 'harp', pad: 'sawtooth', padCut: 1000, density: 0.66, sparkle: 0.2, swing: 0.05 },
 ];
 
+// The journey continues with new arrangements using the same lightweight instruments.
+THEMES.push(
+  { ...THEMES[0], bpm: 86, root: 65, lead: 'pluck', swing: 0.09 }, // harvest
+  { ...THEMES[1], bpm: 94, root: 60, lead: 'marimba', pad: 'triangle', density: 0.58 }, // safari
+  { ...THEMES[2], bpm: 78, root: 67, lead: 'kalimba', swing: 0.08 }, // harbor
+  { ...THEMES[3], bpm: 98, root: 62, lead: 'pluck', density: 0.6 }, // market
+  { ...THEMES[0], bpm: 90, root: 69, lead: 'kalimba', sparkle: 0.16 }, // workshop
+  { ...THEMES[5], bpm: 70, root: 65, lead: 'flute', density: 0.4 }, // sky
+  { ...THEMES[6], bpm: 88, root: 67, lead: 'harp', pad: 'triangle', sparkle: 0.24 }, // festival
+);
+
 class Rand {
   private s: number;
   constructor(seed: number) {

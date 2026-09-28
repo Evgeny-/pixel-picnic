@@ -43,6 +43,13 @@ const DECOS: EmojiName[][] = [
   ['crescent-moon', 'ringed-planet', 'rocket', 'comet', 'shooting-star', 'glowing-star'],
   ['snowman', 'christmas-tree', 'snowflake', 'cloud-with-snow', 'wrapped-gift'],
   ['crystal-ball', 'castle', 'unicorn', 'magic-wand', 'gem-stone', 'sparkles', 'crown'],
+  ['sunflower', 'fallen-leaf', 'seedling', 'chestnut', 'maple-leaf'],
+  ['palm-tree', 'butterfly', 'herb', 'sun', 'seedling'],
+  ['spiral-shell', 'sailboat', 'sun', 'compass', 'anchor'],
+  ['cookie', 'shortcake', 'ice-cream', 'cupcake', 'sunflower'],
+  ['wrapped-gift', 'teddy-bear', 'gem-stone', 'yarn', 'sparkles'],
+  ['rainbow', 'cloud-with-snow', 'shooting-star', 'sun', 'butterfly'],
+  ['cherry-blossom', 'tulip', 'blossom', 'sparkles', 'hibiscus'],
 ];
 
 const bgCache = new Map<string, string>();

@@ -1,8 +1,9 @@
 /**
  * Curated list of emoji used as level pictures.
  *
- * Every entry was checked visually on the contact sheets produced by scripts/build-pictures.ts
- * (20x20 / 5 colors and 32x32 / 8 colors + background). When a subject exists in both sets we keep
+ * The original selection was checked on scripts/build-pictures.ts contact sheets (20x20 / 5
+ * colors and 32x32 / 8 colors + background). Expansion pictures are reviewed at their actual
+ * campaign sizes with scripts/audit-campaign.ts. When a subject exists in both sets we keep
  * the version that pixelizes better; for a few popular subjects both are included (the Twemoji one
  * gets a `tw-` id prefix).
  *
@@ -10,11 +11,14 @@
  *             2 = medium detail, good at 20–32; 3 = detailed scene/object, wants 32–48.
  */
 
+import { WORLD_IDS, type WorldId } from '../src/core/worlds';
+import { EXPANSION_PICTURES } from './expansion-pictures';
+
 export interface PictureEntry {
   id: string;
   source: 'fluent' | 'twemoji' | 'noto';
   icon: string;
-  theme: 'meadow' | 'forest' | 'sea' | 'sweets' | 'space' | 'winter' | 'fantasy';
+  theme: WorldId;
   name: { en: string; ru: string };
   complexity: 1 | 2 | 3;
 }
@@ -22,7 +26,7 @@ export interface PictureEntry {
 type Theme = PictureEntry['theme'];
 type Row = [id: string, source: 'f' | 't' | 'n', icon: string, en: string, ru: string, complexity: 1 | 2 | 3];
 
-const rows: Record<Theme, Row[]> = {
+const rows: Partial<Record<Theme, Row[]>> = {
   meadow: [
     ['red-apple', 't', 'red-apple', 'Apple', 'Яблоко', 1],
     ['green-apple', 'f', 'green-apple', 'Green Apple', 'Зелёное яблоко', 1],
@@ -337,10 +341,10 @@ const rows: Record<Theme, Row[]> = {
   ],
 };
 
-export const THEMES: Theme[] = ['meadow', 'forest', 'sea', 'sweets', 'space', 'winter', 'fantasy'];
+export const THEMES: readonly Theme[] = WORLD_IDS;
 
 export const PICTURES: PictureEntry[] = THEMES.flatMap((theme) =>
-  rows[theme].map(([id, src, icon, en, ru, complexity]) => ({
+  (rows[theme] ?? []).map(([id, src, icon, en, ru, complexity]) => ({
     id,
     source: src === 'f' ? ('fluent' as const) : src === 'n' ? ('noto' as const) : ('twemoji' as const),
     icon,
@@ -348,4 +352,4 @@ export const PICTURES: PictureEntry[] = THEMES.flatMap((theme) =>
     name: { en, ru },
     complexity,
   })),
-);
+).concat(EXPANSION_PICTURES);

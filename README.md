@@ -41,9 +41,9 @@ Every 5th level is **hard**, every 10th is **super hard**.
 
 ## Features
 
-- **140 levels in 7 worlds** — Sunny Meadow, Whispering Forest, Seashell Beach, Candy Town,
-  Starry Night, Snowy Hills and Enchanted Glade — plus an endless mode that generates new levels
-  on the fly.
+- **280 levels in 14 worlds.** The original seven worlds continue into Harvest Hills, Safari
+  River, Harbor Lights, Market Square, Toy Workshop, Skybound Trail and Festival Gardens.
+  An endless mode generates new levels after the campaign.
 - **Mechanics that unlock as you play:**
 
   | From level | Mechanic |
@@ -104,8 +104,9 @@ For frame-time diagnostics and geometry budgets, see [Performance checks](docs/p
   generator builds a queue around a known solution, then plays hundreds of simulated games with
   three players — one tapping **at random**, a "casual" one who only takes colors the ants can
   reach, and a greedy one — and tunes the queue (solver-checked local search: swapping, merging,
-  splitting and moving boxes) until the win rates land in the band for the level's tier. Tapping
-  at random wins about 10% of the early puzzles and practically never after that
+  splitting and moving boxes) toward the win-rate band for the level's tier.
+  In the original 140-level campaign, tapping at random wins about 10% of the early puzzles
+  and practically never after that
   (0.7% on average for normal levels, 0% for hard and super hard ones); a casual player wins about
   12% of normal levels, 4% of hard ones and almost never a super hard one. Levels are also tuned
   so the thinking doesn't end after the first taps (the random player is re-measured from a third
@@ -116,7 +117,11 @@ For frame-time diagnostics and geometry budgets, see [Performance checks](docs/p
   more on hard ones. Fewer queue columns, four slots and fences are extra difficulty levers.
   Level 1 is authored separately: a 110-piece frog with three colors and five boxes. Every front
   box starts collecting immediately, and every order is winnable. Campaign rebuilds preserve it.
-- **Pictures** — about 300 curated emoji from three open sets (Fluent, Twemoji and Noto, whose
+  Levels 141–280 combine the existing mechanics with gradually tighter difficulty targets.
+  Their boards stay within 34×34 pieces, including the background, and keep four slots.
+  Each has a stored solution that the test suite replays without boosters. See
+  [the campaign expansion notes](docs/campaign-expansion.md) for the world list and validation.
+- **Pictures** — 466 candidate emoji from three open sets (Fluent, Twemoji and Noto, whose
   detailed scenes — cities at night, mountains, lighthouses, castles, fairgrounds — make the
   hardest levels), rasterized, reduced to 3–10 clean colors with k‑means in OKLab, cleaned of stray
   pixels, and placed on patterned backgrounds at 14×13 to 44×44 pieces
@@ -152,9 +157,16 @@ Regenerate content (uses [Bun](https://bun.sh)):
 
 ```bash
 bun scripts/build-pictures.ts   # contact sheets for reviewing the pixel art in .cache/sheets
-bun scripts/build-levels.ts     # campaign → src/data/levels.json (a few minutes)
+bun scripts/build-levels.ts     # offline campaign generation → src/data/levels.json
+bun scripts/audit-campaign.ts   # verify the expansion, sample difficulty, render contact sheets
 bun scripts/build-icons.ts      # UI icons
 ```
+
+Use `APPEND=1 bun scripts/build-levels.ts 280` to extend an existing campaign while preserving
+its published levels. The builder writes a checkpoint after each level. Use `REBUILD=141,145`
+to regenerate selected levels, or `BASE=src/data/levels.json LEVELS=141,142` with a separate output
+path to build an isolated batch. Generation and the full difficulty audit can take several minutes.
+`RESUME=1` continues an interrupted batch from its checkpoint.
 
 **Debug mode** (Settings → Debug mode, or `?debug=1`): every level is unlocked, the map shows each
 level's difficulty, the 🐞 button opens a list of all levels with their picture and numbers

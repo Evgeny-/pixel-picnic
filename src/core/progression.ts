@@ -86,6 +86,7 @@ export function buildFences(specs: FenceSpec[], w: number, h: number, seed: numb
 
 /** Deterministic plan for level n: picture size, palette size and generator knobs. */
 export function planLevel(n: number, tier: Tier): LevelPlan {
+  if (n > 140) return advancedPlan(n, tier);
   const rng = new Rng(n * 2654435761);
   const w = worldOf(n);
   const hard = tier !== 'normal';
@@ -168,6 +169,49 @@ export function planLevel(n: number, tier: Tier): LevelPlan {
     frozen: frozenOn ? (n === MECHANIC_LEVEL.frozen ? 2 : rng.int(1, 2)) : 0,
   };
   return { gridSize, colors, background, fences, queueHint, params };
+}
+
+/** Continue the campaign through combinations of familiar rules, with the same phone-sized board. */
+function advancedPlan(n: number, tier: Tier): LevelPlan {
+  const rng = new Rng(n * 2654435761);
+  const chapter = Math.min(6, Math.floor((n - 141) / LEVELS_PER_WORLD));
+  const beat = (n - 141) % LEVELS_PER_WORLD;
+  const hard = tier !== 'normal';
+  const superhard = tier === 'superhard';
+  const gridSize = hard ? 30 : rng.int(28, 30);
+  const boxes = rng.int(23, 27) + Math.floor(chapter / 2) + (hard ? 2 : 0);
+  const avg = gridSize * gridSize / boxes;
+  const fences: FenceSpec[] = [];
+  // Alternate open boards, one-sided approaches and paired entrances. Four-side enclosure
+  // always has a gate; its width stays at least four cells for readable animal routes.
+  const route = (beat + chapter) % 5;
+  if (superhard || route === 4) {
+    fences.push({ side: 'top' }, { side: 'left' }, { side: 'right' }, { side: 'bottom', gate: 5 });
+    if (!superhard && chapter < 4) fences[0].gate = 5;
+  } else if (route === 1 || route === 3) {
+    fences.push({ side: 'top' }, { side: chapter % 2 ? 'right' : 'left' });
+    if (route === 3) fences.push({ side: 'bottom', gate: 6 });
+  } else if (route === 2) {
+    fences.push({ side: 'left', gate: 5 }, { side: 'right', gate: 5 });
+  }
+  return {
+    gridSize, colors: rng.int(6, hard ? 8 : 7), background: true, fences,
+    // Hidden depth adds uncertainty, not planning. Keep the count visible in normal stages.
+    queueHint: superhard && chapter >= 2 ? 'mystery' : 'count',
+    params: {
+      // The Skybound finale needs more competing fronts and shorter boxes: three columns
+      // collapsed its narrow picture into a largely forced sequence.
+      columns: n === 260 ? 4 : superhard ? 3 : hard ? rng.pick([3, 4]) : 4,
+      slots: 4, visibleRows: 3, fences: [],
+      boxMin: n === 260 ? 14 : Math.max(10, Math.round(avg * 0.6)),
+      boxMax: n === 260 ? 36 : Math.round(avg * 1.45),
+      dig: (superhard ? 0.5 : hard ? 0.36 : 0.25) + chapter * 0.015,
+      spread: superhard ? 0.95 : hard ? 0.8 : 0.58 + chapter * 0.025,
+      hiddenFrac: beat % 4 === 2 || superhard ? 0.12 : 0,
+      links: beat % 3 === 0 ? 0 : hard ? 3 : 1 + Math.floor(chapter / 3),
+      frozen: beat % 4 === 1 || (hard && chapter >= 3) ? (hard ? 2 : 1) : 0,
+    },
+  };
 }
 
 /** Piece shape of level n: plain cubes first, then a different look for most pictures. */

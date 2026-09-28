@@ -1,9 +1,11 @@
 import type { Localized } from '../core/types';
+import type { WorldId } from '../core/worlds';
+import { EXPANSION_THEMES } from './expansionThemes';
 
-export type GroundKind = 'grass' | 'forest' | 'sand' | 'frosting' | 'night' | 'snow' | 'magic';
+export type GroundKind = 'grass' | 'forest' | 'sand' | 'frosting' | 'night' | 'snow' | 'magic' | 'paving' | 'planks' | 'clouds';
 
 export interface WorldTheme {
-  id: string;
+  id: WorldId;
   name: Localized;
   /** clear color / fog */
   bg: string;
@@ -159,6 +161,7 @@ export const THEMES: WorldTheme[] = [
     ui: { top: '#d7c2ff', bottom: '#8a6cc2', accent: '#ffcf56', path: '#f3e6ff' },
     music: 6,
   },
+  ...EXPANSION_THEMES,
 ];
 
 export function themeForWorld(world: number): WorldTheme {

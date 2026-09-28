@@ -5,8 +5,14 @@
  * Run: bun scripts/build-levels.ts [count] [outPath]
  * Rebuild a few levels of an existing campaign in place (other levels and their pictures stay):
  *      REBUILD=1,2,3 bun scripts/build-levels.ts
+ * Extend the published campaign without touching existing levels:
+ *      APPEND=1 bun scripts/build-levels.ts 280
+ * Build a separate batch, reserving the base campaign's artwork:
+ *      BASE=src/data/levels.json LEVELS=141,142 bun scripts/build-levels.ts 280 .cache/batch.json
+ * Add RESUME=1 to continue a batch from its last completed level.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { PICTURES, type PictureEntry } from './pictures-manifest';
 import { renderEmojiRGBA } from './lib/emoji';
 import { pixelize, fillBackground, pickBackground, type PixelGrid } from './lib/pixelart';
@@ -16,14 +22,19 @@ import { buildFences, LEVELS_PER_WORLD, planLevel, shapeFor, worldOf } from '../
 import { encodeCells, tierForLevel, type LevelDef, type PictureDef } from '../src/core/types';
 import { Rng, hashString } from '../src/core/rng';
 import { createIntroLevel } from './lib/intro-level';
+import { WORLD_IDS } from '../src/core/worlds';
 
-const THEME_ORDER = ['meadow', 'forest', 'sea', 'sweets', 'space', 'winter', 'fantasy'] as const;
+const THEME_ORDER = WORLD_IDS;
 const COUNT = Number(process.argv[2] ?? THEME_ORDER.length * LEVELS_PER_WORLD);
 const OUT = process.argv[3] ?? 'src/data/levels.json';
 /** Optional comma separated level numbers to build (experiments); default: 1..COUNT. */
 const ONLY = process.env.LEVELS ? new Set(process.env.LEVELS.split(',').map(Number)) : null;
 /** Levels to regenerate inside the existing campaign file (OUT). */
 const REBUILD = process.env.REBUILD ? new Set(process.env.REBUILD.split(',').map(Number)) : null;
+/** APPEND preserves published levels. BASE reserves their pictures when building separate batches. */
+const APPEND = process.env.APPEND === '1';
+const RESUME = process.env.RESUME === '1';
+const BASE = process.env.BASE ?? OUT;
 const PATTERNS = ['sparkles', 'dots', 'none', 'stripes', 'sparkles', 'checker'] as const;
 
 const used = new Set<string>();
@@ -73,8 +84,18 @@ function compact(g: PixelGrid): PixelGrid {
 }
 
 const levels: LevelDef[] = [];
-const existing: LevelDef[] = REBUILD && existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : [];
-if (REBUILD) for (const lv of existing) if (!REBUILD.has(lv.n)) used.add(lv.picture.id);
+const existing: LevelDef[] = (REBUILD || APPEND || process.env.BASE) && existsSync(BASE) ? JSON.parse(readFileSync(BASE, 'utf8')) : [];
+const checkpointLevels: LevelDef[] = RESUME && existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : [];
+for (const lv of existing) if (!REBUILD?.has(lv.n)) used.add(lv.picture.id);
+for (const lv of checkpointLevels) used.add(lv.picture.id);
+const resumed = new Map(checkpointLevels.map(l => [l.n, l]));
+const byNumber = new Map(existing.map(l => [l.n, l]));
+const usedArt = new Set(PICTURES.filter(p => used.has(p.id)).map(p => `${p.source}:${p.icon}`));
+function checkpoint(): void {
+  mkdirSync(dirname(OUT), { recursive: true });
+  writeFileSync(OUT + '.tmp', JSON.stringify(levels));
+  renameSync(OUT + '.tmp', OUT);
+}
 const t0 = performance.now();
 
 interface Built {
@@ -119,12 +140,16 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
   const iters = tier === 'superhard' ? 320 : tier === 'hard' ? 260 : 180;
   if (objective(res.diff, target) > 0) {
     // Fine-tune the queue layout with solver-checked local search.
-    const tuned = tuneLevel(res.level, res.diff, target, n * 7717 + 3, iters, 90);
+    const tuned = tuneLevel(res.level, res.diff, target, n * 7717 + 3, iters, 90, n > 140 ? 3000 : 12000);
     res = { ...res, level: tuned.level, diff: tuned.diff };
   }
   // Every level must ask for real decisions; keep tuning until it does.
-  const crit = ensureCritical(res.level, res.diff, target, n * 3571 + 11, Math.round(iters * 0.6));
+  const crit = ensureCritical(res.level, res.diff, target, n * 3571 + 11, Math.round(iters * 0.6), n > 140 ? 3000 : 12000);
   res = { ...res, level: crit.level, diff: crit.diff };
+  // Judge the selected candidate with the same larger planner sample we publish in its stats.
+  // A lucky four-run sample during local search should not decide the final picture/queue.
+  const planner = plannerRate(res.level, n > 140 ? 12 : 8, n * 17 + 1);
+  res.diff = { ...res.diff, planner };
   const dist = objective(res.diff, target) + Math.max(0, (target.minCritical ?? 0) - crit.critical) * 0.05;
   const lv: LevelDef = {
     ...res.level,
@@ -138,7 +163,7 @@ function buildWith(n: number, entry: PictureEntry): Built | null {
       casual: +res.diff.casual.toFixed(3),
       greedy: +res.diff.greedy.toFixed(3),
       random: +res.diff.random.toFixed(3),
-      planner: +plannerRate(res.level, 8, n * 17 + 1).toFixed(3),
+      planner: +planner.toFixed(3),
       nodes: res.nodes,
       critical: crit.critical,
       decisions: crit.decisions,
@@ -155,8 +180,9 @@ const fenceTag = (lv: LevelDef) =>
 
 for (let n = 1; n <= COUNT; n++) {
   if (ONLY && !ONLY.has(n)) continue;
-  if (REBUILD && !REBUILD.has(n) && existing[n - 1]) {
-    levels.push(existing[n - 1]);
+  if (resumed.has(n)) { levels.push(resumed.get(n)!); continue; }
+  if ((APPEND || (REBUILD && !REBUILD.has(n))) && byNumber.has(n)) {
+    levels.push(byNumber.get(n)!);
     continue;
   }
   // The first level teaches the interaction; difficulty tuning would reintroduce idle taps.
@@ -172,17 +198,23 @@ for (let n = 1; n <= COUNT; n++) {
   let best: Built | null = null;
   let tried = 0;
   for (const entry of pictureCandidates(n, tier)) {
+    if (n > 140 && usedArt.has(`${entry.source}:${entry.icon}`)) continue;
     // A few pictures normally; more when none of them lands near the target.
     if (tried >= tries && (!best || best.dist <= 0.1 || tried >= tries * 2)) break;
     tried++;
     const b = buildWith(n, entry);
     if (b && (!best || b.dist < best.dist)) best = b;
     if (best && best.dist === 0) break;
+    // One extra random win in a finite sample should not trigger several more picture builds.
+    if (n > 140 && best && best.dist <= 0.025 && best.lv.stats!.critical! >= (tierTarget(tier, n).minCritical ?? 0)
+      && best.lv.stats!.planner! >= (tierTarget(tier, n).planner?.[0] ?? 0)) break;
   }
   if (!best) throw new Error(`level ${n}: generation failed`);
   used.add(best.entry.id);
+  usedArt.add(`${best.entry.source}:${best.entry.icon}`);
   const lv = best.lv;
   levels.push(lv);
+  checkpoint();
   const st = lv.stats!;
   const ph = phaseDifficulty(lv, [1 / 3], 60);
   console.log(
@@ -192,6 +224,5 @@ for (let n = 1; n <= COUNT; n++) {
       `@1/3 rnd=${ph.random[0].toFixed(2)} cas=${ph.casual[0].toFixed(2)} ${best.dist === 0 ? 'ok ' : 'OFF ' + best.dist.toFixed(2)} ${best.ms.toFixed(0)}ms`,
   );
 }
-mkdirSync('src/data', { recursive: true });
-writeFileSync(OUT, JSON.stringify(levels));
+checkpoint();
 console.log(`wrote ${levels.length} levels in ${((performance.now() - t0) / 1000).toFixed(1)}s`);

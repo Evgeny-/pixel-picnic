@@ -19,6 +19,7 @@ const ICONS = [
   'cherry-blossom', 'herb', 'fallen-leaf', 'maple-leaf', 'palm-tree', 'shortcake', 'cupcake', 'comet',
   'christmas-tree', 'unicorn', 'butterfly', 'honeybee', 'snail', 'seedling', 'crab', 'cookie', 'ice-cream',
   'cloud-with-snow', 'magic-wand', 'chestnut',
+  'teddy-bear', 'yarn', 'rainbow', 'hibiscus', 'sailboat', 'compass', 'anchor',
 ];
 
 const set = JSON.parse(readFileSync('node_modules/@iconify-json/fluent-emoji-flat/icons.json', 'utf8'));

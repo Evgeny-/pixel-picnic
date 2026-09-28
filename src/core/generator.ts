@@ -419,6 +419,7 @@ export function tuneLevel(
   seed: number,
   iters = 40,
   runs = 90,
+  solverNodes = 12000,
 ): { level: LevelDef; diff: Difficulty } {
   const rng = new Rng(seed ^ 0x5bd1e995);
   let best = level;
@@ -427,7 +428,7 @@ export function tuneLevel(
   for (let it = 0; it < iters && bestDist > 0; it++) {
     const cand = mutate(best, rng, tooEasy(bestDiff, target), target.maxBox);
     if (!cand) continue;
-    const res = solve(Sim.fromLevel(cand), 12000);
+    const res = solve(Sim.fromLevel(cand), solverNodes);
     if (res.status !== 'solved') continue;
     cand.solution = res.moves;
     const d = measure(cand, target, runs, seed + it * 7);
@@ -448,6 +449,23 @@ export function tuneLevel(
  * a dead end.
  */
 export function tierTarget(tier: Tier, n: number): GenTarget {
+  if (n > 140) {
+    const stage = Math.min(1, (n - 141) / 139);
+    if (tier === 'normal') return {
+      casual: [0, 0.16 - stage * 0.05], random: [0, 0.01],
+      greedy: [0, 0.7 - stage * 0.15], planner: [0.5, 1],
+      minCritical: 6 + Math.floor(stage * 2), maxBox: 70, phaseRandom: 0.45,
+    };
+    if (tier === 'hard') return {
+      casual: [0, 0.06 - stage * 0.02], random: [0, 0.005],
+      greedy: [0, 0.35 - stage * 0.1], planner: [0.25, 0.8],
+      minCritical: 8 + Math.floor(stage * 2), maxBox: 75, phaseRandom: 0.3,
+    };
+    return {
+      casual: [0, 0.02], random: [0, 0.003], greedy: [0, 0.12],
+      planner: [0.05, 0.6], minCritical: 10 + Math.floor(stage * 2), maxBox: n === 260 ? 50 : 80, phaseRandom: 0.2,
+    };
+  }
   if (n === 1) return { casual: [0.3, 0.65], random: [0, 0.1], greedy: [0.5, 1], planner: [0.75, 1], minCritical: 2, maxBox: 45 };
   if (n <= 4) return { casual: [0.15, 0.45], random: [0, 0.04], greedy: [0.4, 1], planner: [0.75, 1], minCritical: 2, maxBox: 50 };
   if (tier === 'normal' && n <= 10) return { casual: [0.08, 0.3], random: [0, 0.02], greedy: [0.3, 0.95], planner: [0.6, 1], minCritical: 3, maxBox: 60, phaseRandom: 0.8 };
@@ -468,6 +486,7 @@ export function ensureCritical(
   target: GenTarget,
   seed: number,
   iters = 60,
+  solverNodes = 12000,
 ): { level: LevelDef; diff: Difficulty; critical: number; decisions: number } {
   let best = { level, diff, ...criticalDecisions(level) };
   const need = target.minCritical ?? 0;
@@ -477,7 +496,7 @@ export function ensureCritical(
       ...target,
       casual: [Math.max(0, lo - 0.08 * round), Math.max(lo * 0.6, hi - 0.14 * round)],
     };
-    const tuned = tuneLevel(best.level, best.diff, tighter, seed + round * 101, iters, 90);
+    const tuned = tuneLevel(best.level, best.diff, tighter, seed + round * 101, iters, 90, solverNodes);
     const crit = criticalDecisions(tuned.level);
     if (crit.critical > best.critical) best = { level: tuned.level, diff: tuned.diff, ...crit };
   }

@@ -30,6 +30,9 @@ type Style = {
 };
 
 const STYLES: Record<GroundKind, Style> = {
+  paving: { count: 20, tex: 'glow', colors: ['#fff9e8', '#ffffff'], size: [0.07, 0.12], fall: [-0.02, 0.03], additive: true, opacity: 0.55 },
+  planks: { count: 18, tex: 'glow', colors: ['#fff5df', '#fffce9'], size: [0.06, 0.1], fall: [-0.025, 0.025], additive: true, opacity: 0.45 },
+  clouds: { count: 24, tex: 'sparkle', colors: ['#ffffff', '#f5e5ba'], size: [0.1, 0.18], fall: [-0.035, 0.035], additive: true, opacity: 0.55, blink: true },
   grass: { count: 46, tex: 'glow', colors: ['#fffbe6', '#fff4b8', '#ffffff'], size: [0.08, 0.16], fall: [-0.06, 0.06], additive: true, opacity: 0.9 },
   forest: { count: 26, tex: 'leaf', colors: ['#e0703a', '#f2b84b', '#c9502e', '#a7c957', '#d98c2b'], size: [0.28, 0.42], fall: [-0.45, -0.25], additive: false, opacity: 1 },
   sand: { count: 34, tex: 'sparkle', colors: ['#ffffff', '#fff6d8', '#d6f6ff'], size: [0.14, 0.26], fall: [-0.02, 0.04], additive: true, opacity: 0.85, blink: true },
