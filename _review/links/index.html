@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Pixel Picnic · Linked box ideas</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow"><img src="/favicon.svg" alt=""> Pixel Picnic <span>Design playground</span></div>
+      <h1>Follow the connection</h1>
+      <p>Every link stays visible. Compare the materials in a busy queue.</p>
+    </header>
+    <div class="controls">
+      <fieldset><legend>Box positions</legend><div class="segmented">
+        <button type="button" data-case="crowded" aria-pressed="true">Busy neighbours</button>
+        <button type="button" data-case="crossing" aria-pressed="false">Shared gaps</button>
+        <button type="button" data-case="level14" aria-pressed="false">Level 14</button>
+        <button type="button" data-case="level180" aria-pressed="false">Level 180</button>
+      </div></fieldset>
+      <fieldset><legend>Background</legend><div class="segmented">
+        <button type="button" data-theme="day" aria-pressed="false">Day</button>
+        <button type="button" data-theme="night" aria-pressed="true">Night</button>
+      </div></fieldset>
+      <button class="reset" type="button">Clear highlight</button>
+    </div>
+    <div class="scenario-note"><strong id="scene-title"></strong><p id="scene-note"></p></div>
+    <section class="options" aria-label="Link design alternatives">
+      <article data-variant="cord">
+        <h2><span class="letter">A</span> Soft cord</h2>
+        <p class="description">Warm ivory throughout. A quiet material color that works with every box.</p>
+        <div class="stage" aria-label="Soft cord preview"></div>
+        <p class="feedback" aria-live="polite"></p>
+      </article>
+      <article data-variant="color">
+        <h2><span class="letter">B</span> Box-color cord</h2>
+        <p class="description">Blends the two boxes’ colors. At a hidden or mystery box, that end becomes neutral.</p>
+        <div class="stage" aria-label="Box-color cord preview"></div>
+        <p class="feedback" aria-live="polite"></p>
+      </article>
+      <article data-variant="gold">
+        <h2><span class="letter">C</span> Fine gold chain</h2>
+        <p class="description">Small oval links with a soft gold finish. Fewer twists and restrained highlights.</p>
+        <div class="stage" aria-label="Fine gold chain preview"></div>
+        <p class="feedback" aria-live="polite"></p>
+      </article>
+      <article data-variant="silver">
+        <h2><span class="letter">D</span> Rounded steel chain</h2>
+        <p class="description">Larger, rounded links in satin silver. A more solid, toy-like connection.</p>
+        <div class="stage" aria-label="Rounded steel chain preview"></div>
+        <p class="feedback" aria-live="polite"></p>
+      </article>
+    </section>
+    <footer>Links to +N or ? continue down that stack. Separate lanes and small gaps at crossings keep connections from merging. Tap a box to inspect its endpoints; all links remain visible. <a href="/?level=14&debug=1">Back to the game</a></footer>
+  </main>
+  <script type="module" src="./preview.js"></script>
+</body>
+</html>

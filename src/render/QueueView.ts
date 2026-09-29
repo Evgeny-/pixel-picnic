@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Where, type Sim } from '../core/sim';
 import { queuePos, type Layout } from './layout';
-import { LabelTexture, mysteryTexture } from './textures';
+import { mysteryTexture } from './textures';
+import { QueueCounter } from './QueueCounter';
 import { roundedRectShape } from './BoardView';
 import { BOX_H, BOX_LABEL_Z, BoxStyle } from './boxStyle';
 import { QueueLinks } from './QueueLinks';
@@ -48,7 +49,6 @@ export class QueueView {
   private readonly pendingBadges = new Map<number, QueueBadge>();
   private readonly boxStyle: BoxStyle;
   private readonly iceGeo = new RoundedBoxGeometry(1.12, BOX_H * 1.25, 1.12, 2, 0.16);
-  private readonly labelGeo = new THREE.PlaneGeometry(1, 1);
   private readonly digits: DigitAtlas;
   private readonly digitMat: THREE.MeshStandardMaterial;
   private readonly digitStyles: number[];
@@ -74,7 +74,7 @@ export class QueueView {
   private readonly tmp = new THREE.Vector3();
   private slotPulse = 0;
   /** "+3" under a column: how many boxes are still hidden below the visible rows. */
-  private more: { mesh: THREE.Mesh; label: LabelTexture }[] = [];
+  private more: QueueCounter[] = [];
 
   /** Show how many boxes are hidden in a column ("+3"), or only that there are some ("?"). */
   private hint: 'count' | 'mystery' = 'count';
@@ -100,18 +100,11 @@ export class QueueView {
       this.boxes.set(id, this.makeBox(id));
     }
     for (let c = 0; c < sim.columns.length; c++) {
-      const label = new LabelTexture(128);
-      const mesh = new THREE.Mesh(
-        this.labelGeo,
-        new THREE.MeshBasicMaterial({ map: label.texture, transparent: true, depthWrite: false }),
-      );
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.renderOrder = 5;
-      mesh.visible = false;
-      this.group.add(mesh);
-      this.more.push({ mesh, label });
+      const counter = new QueueCounter();
+      this.group.add(counter.mesh);
+      this.more.push(counter);
     }
-    this.links = new QueueLinks(sim, this.boxes, this.group);
+    this.links = new QueueLinks(sim, this.boxes, this.group, this.colors);
   }
 
   private makeBox(id: number): BoxVis {
@@ -152,6 +145,7 @@ export class QueueView {
     this.trayMat.color.set(on ? '#6c6586' : '#efd3a0');
     this.padBase.set(on ? '#57506f' : '#d9b67c');
     this.padMat.color.copy(this.padBase);
+    for (const counter of this.more) counter.setNight(on);
   }
 
   setLayout(l: Layout): void {
@@ -164,13 +158,7 @@ export class QueueView {
       b.labelMesh.scale.set(0.92, 0.92 / Math.cos(l.tilt), 0.92);
     }
     for (const badge of this.pendingBadges.values()) badge.setTilt(l.tilt);
-    this.more.forEach((m, c) => {
-      // Just past the last visible row (rows grow downwards in portrait, upwards in landscape,
-      // where the label has to clear the boxes' height).
-      const p = queuePos(l, c, l.queueRowsVisible - (l.queueRow > 0 ? 0.4 : -0.15));
-      m.mesh.position.set(p.x, 0.02, p.z);
-      m.mesh.scale.setScalar(l.boxSize * 0.8);
-    });
+    this.more.forEach((m, c) => m.setLayout(l, this.columnX(c)));
     this.syncFromSim(false);
   }
 
@@ -302,7 +290,7 @@ export class QueueView {
       m.mesh.visible = hidden > 0;
       m.mesh.position.x = this.columnX(c);
       if (hidden > 0) {
-        m.label.draw(this.hint === 'mystery' ? '?' : `+${hidden}`, { fill: '#ffffff', stroke: 'rgba(40, 28, 70, 0.9)', shadow: 'rgba(0, 0, 0, 0.3)', scale: 0.85 });
+        m.draw(this.hint === 'mystery' ? '?' : `+${hidden}`);
       }
     });
   }
@@ -489,10 +477,7 @@ export class QueueView {
   dispose(): void {
     this.links.dispose();
     for (const badge of this.pendingBadges.values()) badge.dispose();
-    for (const m of this.more) {
-      m.label.dispose();
-      (m.mesh.material as THREE.Material).dispose();
-    }
+    for (const m of this.more) m.dispose();
     for (const b of this.boxes.values()) {
       b.mat.dispose();
       b.label.dispose();
@@ -501,7 +486,6 @@ export class QueueView {
     this.digits.dispose();
     this.boxStyle.dispose();
     this.iceGeo.dispose();
-    this.labelGeo.dispose();
     this.iceMat.dispose();
     this.mysteryTex.dispose();
     this.trayMat.dispose();

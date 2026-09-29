@@ -15,7 +15,7 @@ afterEach(() => {
 function setup(aspect: number) {
   const painted: string[] = [];
   const context = {
-    fillRect() {}, clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
+    fillRect() {}, clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, roundRect() {}, fill() {},
     fillText: (text: string) => painted.push(text), strokeText() {},
     measureText: (text: string) => ({ width: text.length * 42 }),
   };
