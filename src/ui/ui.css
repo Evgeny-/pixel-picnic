@@ -365,6 +365,9 @@ button { font-family: var(--font); cursor: pointer; }
   border-radius: 999px; background: rgba(255, 255, 255, 0.92); color: var(--ink);
   font-weight: 900; font-size: 20px; box-shadow: 0 4px 0 rgba(0, 0, 0, 0.14), 0 6px 14px rgba(0, 0, 0, 0.12);
 }
+.coin-shop { border: 0; transition: transform 0.08s ease; }
+.coin-shop:active { transform: translateY(2px); }
+.coin-shop:focus-visible { outline: 3px solid var(--purple); outline-offset: 3px; }
 .topbar .right { display: flex; gap: 10px; }
 
 /* ------------------------------------------------------------------ map */

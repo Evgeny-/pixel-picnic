@@ -87,6 +87,7 @@ const STRINGS = {
   on: { ru: 'Вкл', en: 'On' },
   auto: { ru: 'Авто', en: 'Auto' },
   shop: { ru: 'Магазин', en: 'Shop' },
+  coinShop: { ru: 'Открыть магазин · Монеты: {n}', en: 'Open shop · Coins: {n}' },
   shopCreatures: { ru: 'Зверята', en: 'Animals' },
   shopHouses: { ru: 'Домики', en: 'Houses' },
   shopAnts: { ru: 'Шапки', en: 'Hats' },

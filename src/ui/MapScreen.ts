@@ -70,6 +70,7 @@ export class MapScreen {
   private scroll: HTMLElement;
   private inner: HTMLElement;
   private coinsEl: HTMLElement;
+  private coinsButton: HTMLButtonElement;
   private playBtn: HTMLButtonElement;
   private debugBtn: HTMLButtonElement;
   private cb: MapCallbacks;
@@ -84,7 +85,16 @@ export class MapScreen {
     this.inner = h('div', { class: 'map-inner' });
     this.scroll.append(this.inner);
     this.coinsEl = h('span');
-    const coins = h('div', { class: 'pill', html: emoji('coin', 34) }, this.coinsEl);
+    const openShop = () => {
+      audio.unlock();
+      audio.play('button');
+      cb.onShop();
+    };
+    const coins = this.coinsButton = h('button', {
+      class: 'pill coin-shop', html: emoji('coin', 34),
+      attrs: { type: 'button', title: t('shop'), 'aria-label': t('shop'), 'aria-haspopup': 'dialog' },
+    }, this.coinsEl);
+    coins.addEventListener('click', openShop);
     const album = h('button', { class: 'btn round white', html: emoji('framed-picture', 30), attrs: { 'aria-label': t('album') } });
     album.addEventListener('click', () => {
       audio.unlock();
@@ -104,11 +114,7 @@ export class MapScreen {
       cb.onDebug();
     });
     const shop = h('button', { class: 'btn round white', html: emoji('shopping-bags', 30), attrs: { 'aria-label': t('shop') } });
-    shop.addEventListener('click', () => {
-      audio.unlock();
-      audio.play('button');
-      cb.onShop();
-    });
+    shop.addEventListener('click', openShop);
     const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, this.debugBtn, shop, album, settings));
     this.playBtn = button('', 'big green', () => this.cb.onPlay(this.data.unlocked));
     const dock = h('div', { class: 'play-dock' }, this.playBtn);
@@ -143,6 +149,7 @@ export class MapScreen {
   refreshTop(coins = this.data.coins): void {
     this.data.coins = coins;
     this.coinsEl.textContent = String(coins);
+    this.coinsButton.setAttribute('aria-label', t('coinShop', { n: coins }));
   }
 
   /** Y (from the top of the inner area) of a level node. */

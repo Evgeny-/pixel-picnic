@@ -182,13 +182,14 @@ class Song {
   }
 }
 
-class AudioEngine implements Audio {
+export class AudioEngine implements Audio {
   ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private sfxBus: GainNode | null = null;
   musicBus: GainNode | null = null;
   private duckGain: GainNode | null = null;
-  private reverb: ConvolverNode | null = null;
+  private sfxReverb: ConvolverNode | null = null;
+  private musicReverb: ConvolverNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private last = new Map<SfxName, number>();
   private sfxVol = 0.8;
@@ -235,13 +236,20 @@ class AudioEngine implements Audio {
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = this.musicVol * 0.42;
     this.musicBus.connect(this.duckGain);
-    // Reverb send shared by sfx and music.
-    this.reverb = ctx.createConvolver();
-    this.reverb.buffer = this.impulse(2.4, 2.6);
-    const wet = ctx.createGain();
-    wet.gain.value = 0.55;
-    this.reverb.connect(wet);
-    wet.connect(this.master);
+    // Keep effect tails inside their own volume control, including music ducking.
+    // Mixing them into one reverb would make independent music/SFX muting impossible.
+    const impulse = this.impulse(2.4, 2.6);
+    const reverbFor = (bus: GainNode) => {
+      const reverb = ctx.createConvolver();
+      reverb.buffer = impulse;
+      const wet = ctx.createGain();
+      wet.gain.value = 0.55;
+      reverb.connect(wet);
+      wet.connect(bus);
+      return reverb;
+    };
+    this.sfxReverb = reverbFor(this.sfxBus);
+    this.musicReverb = reverbFor(this.musicBus);
     // Noise buffer.
     const len = ctx.sampleRate;
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -274,12 +282,21 @@ class AudioEngine implements Audio {
 
   setSfxVolume(v: number): void {
     this.sfxVol = v;
-    if (this.sfxBus && this.ctx) this.sfxBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    this.fadeVolume(this.sfxBus, v);
   }
 
   setMusicVolume(v: number): void {
     this.musicVol = v;
-    if (this.musicBus && this.ctx) this.musicBus.gain.setTargetAtTime(v * 0.42, this.ctx.currentTime, 0.1);
+    this.fadeVolume(this.musicBus, v * 0.42);
+  }
+
+  private fadeVolume(bus: GainNode | null, volume: number): void {
+    if (!bus || !this.ctx) return;
+    const now = this.ctx.currentTime, gain = bus.gain, current = gain.value;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(current, now);
+    // A short finite ramp avoids clicks and reaches exact silence at zero.
+    gain.linearRampToValueAtTime(volume, now + 0.02);
   }
 
   duck(amount: number, sec: number): void {
@@ -321,10 +338,11 @@ class AudioEngine implements Audio {
       p.connect(bus);
       node = p;
     }
-    if (wet > 0 && this.reverb) {
+    const reverb = bus === this.sfxBus ? this.sfxReverb : this.musicReverb;
+    if (wet > 0 && reverb) {
       const s = ctx.createGain();
       s.gain.value = wet;
-      s.connect(this.reverb);
+      s.connect(reverb);
       const split = ctx.createGain();
       split.connect(node);
       split.connect(s);
