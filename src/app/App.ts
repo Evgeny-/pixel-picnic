@@ -13,8 +13,8 @@ import { DebugScreen } from '../ui/DebugScreen';
 import { openDialog, initDialogs, toast, closeAllDialogs, dialogOpen } from '../ui/dialogs';
 import { pictureCanvas } from '../ui/pictureCanvas';
 import { t, loc, setLang, getLang, type Lang } from './i18n';
-import { loadSave, writeSave, resetSave, type SaveData } from './save';
-import { loadCampaign, getLevel, prefetch } from './levels';
+import { loadSave, writeSave, resetSave, switchCampaign, type SaveData } from './save';
+import { loadCampaign, getLevel, prefetch, setCampaign } from './levels';
 import {
   BOOSTERS,
   BOOSTER_GIFT,
@@ -93,6 +93,7 @@ export class App {
     else setLang(getLang());
     initDialogs(this.ui);
     await loadFonts();
+    setCampaign(this.save.campaign);
     this.levels = await loadCampaign();
     audio.setMusicVolume(this.save.settings.music);
     audio.setSfxVolume(this.save.settings.sfx);
@@ -103,6 +104,7 @@ export class App {
       onSettings: () => this.openSettings(),
       onAlbum: () => this.openAlbum(),
       onDebug: () => this.openDebugList(),
+      onCampaign: () => void this.toggleCampaign(),
     });
     this.album = new AlbumScreen(this.ui, () => {
       this.album.hide();
@@ -208,6 +210,7 @@ export class App {
 
   private mapData() {
     return {
+      campaign: this.save.campaign,
       unlocked: this.save.level,
       creature: this.save.settings.creature,
       stars: this.save.stars,
@@ -257,6 +260,34 @@ export class App {
     this.stage.style.visibility = 'hidden';
     this.map.show(this.mapData());
     audio.startMusic(themeForWorld(Math.floor((this.save.level - 1) / 20)).music);
+    this.offerNewCampaign();
+  }
+
+  /** Players who stayed on the classic levels hear about the new ones once. */
+  private offerNewCampaign(): void {
+    if (this.save.campaign !== 'classic' || this.save.seen.includes('promo:illustrated') || dialogOpen()) return;
+    this.markSeen('promo:illustrated');
+    writeSave(this.save);
+    openDialog({
+      title: t('promoTitle'),
+      head: 'purple',
+      body: [h('div', { class: 'mech-art', html: emoji('sparkles', 84) }), t('promoText')],
+      buttons: [
+        { label: t('promoTry'), cls: 'green', onClick: () => void this.toggleCampaign() },
+        { label: t('promoLater'), cls: 'white small', onClick: () => undefined },
+      ],
+    });
+  }
+
+  private async toggleCampaign(): Promise<void> {
+    switchCampaign(this.save, this.save.campaign === 'classic' ? 'illustrated' : 'classic');
+    writeSave(this.save);
+    setCampaign(this.save.campaign);
+    this.levels = await loadCampaign();
+    this.map.show(this.mapData());
+    audio.startMusic(themeForWorld(Math.floor((this.save.level - 1) / 20)).music);
+    const name = t(this.save.campaign === 'classic' ? 'campaignClassic' : 'campaignNew');
+    toast(this.ui, t('campaignSwitched', { name, n: this.save.level }), 2200);
   }
 
   private openAlbum(): void {

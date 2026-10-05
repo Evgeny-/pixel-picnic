@@ -369,6 +369,12 @@ button { font-family: var(--font); cursor: pointer; }
 .coin-shop:active { transform: translateY(2px); }
 .coin-shop:focus-visible { outline: 3px solid var(--purple); outline-offset: 3px; }
 .topbar .right { display: flex; gap: 10px; }
+.campaign-switch {
+  position: absolute; z-index: 5; left: 12px; top: calc(66px + var(--safe-top));
+  height: 38px; padding: 0 14px 0 8px; font-size: 15px; border: 0; cursor: pointer;
+}
+.campaign-switch.to-new { background: linear-gradient(135deg, #fff6c9, #ffd9f0); color: #7a3cb8; }
+.campaign-switch:active { transform: translateY(2px); }
 
 /* ------------------------------------------------------------------ map */
 .map { position: absolute; inset: 0; overflow: hidden; background: #86c45b; isolation: isolate; }

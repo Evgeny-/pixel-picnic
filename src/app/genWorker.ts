@@ -22,11 +22,18 @@ self.onmessage = (e: MessageEvent<Req>) => {
     boxMin: Math.max(6, Math.round(avg * 0.6)),
     boxMax: Math.max(10, Math.round(avg * 1.45)),
   };
-  const target = tierTarget(tier, n);
+  // Big illustrated pictures get bigger boxes rather than an endless queue (as in the builder).
+  const base = tierTarget(tier, n);
+  const target = { ...base, maxBox: Math.min(110, Math.max(base.maxBox ?? 70, Math.round(pixels / 22))) };
   let res = generateLevel(picture, params, target, n * 31 + 7, 16, 90);
-  if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0 }, { casual: [0, 1] }, n * 31 + 8, 30, 40);
-  let level = res!.level;
-  let diff = res!.diff;
+  if (!res) res = generateLevel(picture, { ...params, links: 0, frozen: 0 }, { casual: [0, 1], maxBox: target.maxBox }, n * 31 + 8, 30, 40);
+  if (!res) {
+    // The main thread falls back to replaying the campaign level of this picture.
+    (self as unknown as Worker).postMessage({ n, level: null });
+    return;
+  }
+  let level = res.level;
+  let diff = res.diff;
   const tuned = tuneLevel(level, diff, target, n * 131 + 5, tier === 'normal' ? 25 : 45, 70);
   const crit = ensureCritical(tuned.level, tuned.diff, target, n * 137 + 9, 25);
   level = crit.level;

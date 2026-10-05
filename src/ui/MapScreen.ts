@@ -12,6 +12,8 @@ import { creaturePreview } from '../render/preview';
 import type { CreatureId } from '../core/creatures';
 
 export interface MapData {
+  /** Campaign shown on the map; the switch offers the other one. */
+  campaign: 'classic' | 'illustrated';
   unlocked: number;
   creature?: CreatureId;
   stars: Record<number, number>;
@@ -28,6 +30,7 @@ export interface MapCallbacks {
   onSettings(): void;
   onAlbum(): void;
   onDebug(): void;
+  onCampaign(): void;
 }
 
 const STEP = 112;
@@ -70,6 +73,7 @@ export class MapScreen {
   private scroll: HTMLElement;
   private inner: HTMLElement;
   private coinsEl: HTMLElement;
+  private campaignBtn: HTMLElement;
   private coinsButton: HTMLButtonElement;
   private playBtn: HTMLButtonElement;
   private debugBtn: HTMLButtonElement;
@@ -116,9 +120,15 @@ export class MapScreen {
     const shop = h('button', { class: 'btn round white', html: emoji('shopping-bags', 30), attrs: { 'aria-label': t('shop') } });
     shop.addEventListener('click', openShop);
     const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, this.debugBtn, shop, album, settings));
+    this.campaignBtn = h('button', { class: 'pill campaign-switch', attrs: { type: 'button' } });
+    this.campaignBtn.addEventListener('click', () => {
+      audio.unlock();
+      audio.play('button');
+      cb.onCampaign();
+    });
     this.playBtn = button('', 'big green', () => this.cb.onPlay(this.data.unlocked));
     const dock = h('div', { class: 'play-dock' }, this.playBtn);
-    this.el.append(this.scroll, top, dock);
+    this.el.append(this.scroll, top, this.campaignBtn, dock);
     root.append(this.el);
   }
 
@@ -134,6 +144,10 @@ export class MapScreen {
 
   show(data: MapData): void {
     this.data = data;
+    const toNew = data.campaign === 'classic';
+    this.campaignBtn.classList.toggle('to-new', toNew);
+    this.campaignBtn.innerHTML = `${emoji(toNew ? 'sparkles' : 'framed-picture', 26)}<span>${t(toNew ? 'campaignToNew' : 'campaignToClassic')}</span>`;
+    this.campaignBtn.setAttribute('aria-label', t(toNew ? 'campaignToNew' : 'campaignToClassic'));
     this.el.classList.remove('hidden');
     this.render();
   }

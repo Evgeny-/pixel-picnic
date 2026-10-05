@@ -41,9 +41,13 @@ Every 5th level is **hard**, every 10th is **super hard**.
 
 ## Features
 
-- **280 levels in 14 worlds.** The original seven worlds continue into Harvest Hills, Safari
-  River, Harbor Lights, Market Square, Toy Workshop, Skybound Trail and Festival Gardens.
-  An endless mode generates new levels after the campaign.
+- **Two campaigns of 280 levels in 14 worlds.** The *illustrated* campaign is built from
+  pixel-art scenes — a frog fishing on a lily pad, a snowman by a log cabin, a panda slurping
+  ramen, a few masterpieces like Hokusai's Great Wave — on boards that grow from 28 to 60 pieces.
+  The *classic* campaign keeps the emoji pictures. New players start on the illustrated levels;
+  players with classic progress keep it and get an invitation to try the new ones. A button on the
+  map switches between them, and each campaign remembers its own progress (coins, boosters and
+  looks are shared). An endless mode generates new levels after each campaign.
 - **Mechanics that unlock as you play:**
 
   | From level | Mechanic |
@@ -121,7 +125,12 @@ For frame-time diagnostics and geometry budgets, see [Performance checks](docs/p
   Their boards stay within 34×34 pieces, including the background, and keep four slots.
   Each has a stored solution that the test suite replays without boosters. See
   [the campaign expansion notes](docs/campaign-expansion.md) for the world list and validation.
-- **Pictures** — 466 candidate emoji from three open sets (Fluent, Twemoji and Noto, whose
+- **Illustrated pictures** — scenes are drawn by the open Z-Image Turbo model running locally
+  (`scripts/art/generate.py`, prompts in `scripts/art/scenes.py`), then converted to the board
+  by `scripts/art/pixelart.py`: an OKLab palette from the flat areas of the image, majority
+  vote per cell on a finer sub-grid, small high-contrast details (eyes, buttons, stars) put back,
+  and thin dark strokes redrawn as continuous one-piece outlines.
+- **Classic pictures** — 466 candidate emoji from three open sets (Fluent, Twemoji and Noto, whose
   detailed scenes — cities at night, mountains, lighthouses, castles, fairgrounds — make the
   hardest levels), rasterized, reduced to 3–10 clean colors with k‑means in OKLab, cleaned of stray
   pixels, and placed on patterned backgrounds at 14×13 to 44×44 pieces
@@ -162,6 +171,21 @@ bun scripts/audit-campaign.ts   # verify the expansion, sample difficulty, rende
 bun scripts/build-icons.ts      # UI icons
 ```
 
+The illustrated campaign (Python 3 with numpy and Pillow, plus [mflux](https://github.com/filipstrand/mflux)
+for the image model):
+
+```bash
+python3 scripts/art/scenes.py > .cache/art/jobs.jsonl                # scene queue
+python scripts/art/generate.py .cache/art/jobs.jsonl .cache/art/gen   # render it (mflux venv)
+python3 scripts/art/pictures.py --sheets                             # boards + contact sheets
+bun scripts/build-illustrated.ts 2-280                               # queues, one file per level
+bun scripts/build-illustrated.ts merge                               # → src/data/levels-illustrated.json
+```
+
+`scripts/art/selection.json` picks the image for a level (generated variants, earlier samples or
+hand-converted paintings); the builder tries up to three candidates and keeps the first one that
+reaches the level's difficulty target.
+
 Use `APPEND=1 bun scripts/build-levels.ts 280` to extend an existing campaign while preserving
 its published levels. The builder writes a checkpoint after each level. Use `REBUILD=141,145`
 to regenerate selected levels, or `BASE=src/data/levels.json LEVELS=141,142` with a separate output
@@ -186,7 +210,11 @@ an outdated game commit skips publishing when a newer `main` commit is already a
 
 ## Credits & licenses
 
-- Level pictures are generated from emoji:
+- Illustrated campaign: scenes generated with [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo)
+  (Apache License 2.0), converted to pixel art. Paintings from public-domain scans on Wikimedia
+  Commons: Katsushika Hokusai, Vincent van Gogh, Johannes Vermeer, John James Audubon (National
+  Gallery of Art, CC0), Ohara Koson.
+- Classic campaign pictures are generated from emoji:
   - [Microsoft Fluent Emoji](https://github.com/microsoft/fluentui-emoji) — MIT License.
   - [Twemoji](https://github.com/jdecked/twemoji) — © Twitter, Inc. and other contributors,
     graphics licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
