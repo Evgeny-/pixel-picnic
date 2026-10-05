@@ -132,7 +132,9 @@ For frame-time diagnostics and geometry budgets, see [Performance checks](docs/p
   and thin dark strokes redrawn as continuous one-piece outlines. Colors that players could confuse
   are merged (every pair stays at least 1.25× the in-game readability gap). Too-easy scenes first
   get extra fences; a one-piece border around the picture is the last resort, used on at most a
-  fifth of the levels. Level 1 is an authored three-color strawberry tutorial.
+  fifth of the levels. Level 1 is an authored three-color strawberry tutorial. Scenes are mixed over
+  the campaign (`scripts/art/order.py`): simple ones first, richer ones later and on hard levels,
+  never the same theme twice in a row.
 - **Classic pictures** — 466 candidate emoji from three open sets (Fluent, Twemoji and Noto, whose
   detailed scenes — cities at night, mountains, lighthouses, castles, fairgrounds — make the
   hardest levels), rasterized, reduced to 3–10 clean colors with k‑means in OKLab, cleaned of stray
@@ -180,6 +182,7 @@ for the image model):
 ```bash
 python3 scripts/art/scenes.py > .cache/art/jobs.jsonl                # scene queue
 python scripts/art/generate.py .cache/art/jobs.jsonl .cache/art/gen   # render it (mflux venv)
+python3 scripts/art/order.py                                         # which scene goes to which level
 python3 scripts/art/pictures.py --sheets                             # boards + contact sheets
 bun scripts/build-illustrated.ts 2-280                               # queues, one file per level
 bun scripts/build-illustrated.ts merge                               # → src/data/levels-illustrated.json

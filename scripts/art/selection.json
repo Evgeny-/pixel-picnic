@@ -20,7 +20,6 @@
  "safari-08": "fixed/cockatoos",
  "sea-20": "fixed/great_wave",
  "space-20": "fixed/starry_night",
- "sky-16": "fixed/red_fuji",
  "workshop-20": "fixed/pearl_earring",
  "winter-15": "fixed/snowman_cartoon",
  "sea-17": "fixed/turtle_cartoon",
@@ -45,5 +44,17 @@
   "gen/fantasy-02-s23",
   "gen/workshop-18-s11",
   "gen/workshop-18-s23"
- ]
+ ],
+ "meadow-15": "gen/meadow-15-r41",
+ "meadow-13": "gen/meadow-13-r41",
+ "meadow-20": "gen/meadow-20-r53",
+ "sea-09": "gen/sea-09-r41",
+ "sea-11": "gen/sea-11-r53",
+ "sweets-03": "gen/sweets-03-r41",
+ "sweets-20": "gen/sweets-20-r53",
+ "space-10": "gen/space-10-r53",
+ "safari-13": "gen/safari-13-r41",
+ "harbor-04": "gen/harbor-04-r41",
+ "harbor-14": "gen/harbor-14-r41",
+ "sky-16": "gen/sky-16-r41"
 }

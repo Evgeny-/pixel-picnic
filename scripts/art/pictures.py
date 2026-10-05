@@ -42,7 +42,7 @@ def sources(slot, sel):
     picks = [sel[slot]] if isinstance(sel.get(slot), str) else sel.get(slot, [])
     out = [os.path.join(ART, x + ('.json' if x.startswith('fixed/') else '.png')) for x in picks]
     if not picks:  # a hand-picked image is used as is; only free slots compare variants
-        for s in ('s11', 's23', 'r37'):
+        for s in ('s11', 's23', 'r37', 'r41', 'r53'):
             out.append(os.path.join(ART, 'gen', f'{slot}-{s}.png'))
     seen = {os.path.join(ART, x + '.png') for x in sel.get('_exclude', [])}
     res = []
@@ -67,12 +67,16 @@ def encode(g):
 def main():
     sel = json.load(open('scripts/art/selection.json')) if os.path.exists('scripts/art/selection.json') else {}
     out, sheet = [], []
+    order = json.load(open(os.path.join(os.path.dirname(__file__), 'order.json')))
     for n in range(2, 281):
-        w, idx = WORLDS[(n - 1) // 20], (n - 1) % 20
-        slot = f'{w}-{idx + 1:02d}'
+        # Scenes are mixed over the campaign (order.py); the board size still follows the level.
+        slot = order[str(n)]
+        w, idx = slot.rsplit('-', 1)[0], int(slot.rsplit('-', 1)[1]) - 1
         paths = sources(slot, sel)
         size, K = plan(n)
         en, ru = NAMES[w][idx]
+        if (n - 1) // 20 >= len(WORLDS):
+            continue
         for k, path in enumerate(paths):
             if path.endswith('.json'):
                 # Hand-picked artwork converted earlier (paintings, cartoon scenes): used as is.
