@@ -369,20 +369,50 @@ button { font-family: var(--font); cursor: pointer; }
 .coin-shop:active { transform: translateY(2px); }
 .coin-shop:focus-visible { outline: 3px solid var(--purple); outline-offset: 3px; }
 .topbar .right { display: flex; gap: 10px; }
+/* Level-set switch: a chunky two-way toggle in the game's button style. */
 .campaign-seg {
-  position: absolute; z-index: 5; left: 12px; top: calc(66px + var(--safe-top));
-  display: flex; gap: 3px; padding: 4px; border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92); box-shadow: 0 4px 0 rgba(0, 0, 0, 0.14), 0 6px 14px rgba(0, 0, 0, 0.12);
+  display: flex; gap: 4px; padding: 5px; border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff, #f3ebdc);
+  box-shadow: 0 5px 0 #cdb894, 0 9px 16px rgba(0, 0, 0, 0.18), inset 0 2px 0 rgba(255, 255, 255, 0.7);
 }
 .campaign-opt {
-  display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px 0 8px;
-  border: 0; border-radius: 999px; background: transparent; color: #8a8178;
-  font: inherit; font-weight: 900; font-size: 14px; cursor: pointer;
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px 0 9px;
+  border: 0; border-radius: 17px; background: transparent; color: #8b7a63;
+  font: inherit; font-weight: 900; font-size: 16px; cursor: pointer; white-space: nowrap;
+  transition: transform 0.08s ease, background 0.15s, color 0.15s;
 }
-.campaign-opt[aria-checked='false'] svg, .campaign-opt[aria-checked='false'] img { opacity: 0.55; filter: grayscale(0.6); }
-.campaign-opt[aria-checked='true'] { background: #7a3cb8; color: #fff; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18); cursor: default; }
-.campaign-opt[aria-checked='false']:active { transform: translateY(1px); }
-.campaign-opt:focus-visible { outline: 3px solid #ffd54a; outline-offset: 2px; }
+.campaign-opt svg { flex: none; }
+.campaign-opt[aria-checked='false'] svg { opacity: 0.6; filter: grayscale(0.7); }
+.campaign-opt[aria-checked='true'] {
+  color: #fff; cursor: default; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.22);
+  background: linear-gradient(180deg, #a57bff, #7c4ef0);
+  box-shadow: 0 3px 0 var(--purple-deep), inset 0 2px 0 rgba(255, 255, 255, 0.45);
+}
+.campaign-opt[aria-checked='false']:active { transform: translateY(2px); }
+.campaign-opt:focus-visible { outline: 3px solid var(--purple); outline-offset: 2px; }
+.shop-coins { position: relative; overflow: visible; }
+.coin-badge {
+  position: absolute; left: 50%; bottom: -13px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 7px 1px 3px; border-radius: 999px;
+  background: #fff7d6; color: #8a5a00; font-size: 13px; font-weight: 900; line-height: 18px; text-shadow: none;
+  box-shadow: 0 2px 0 #e2b84d, 0 3px 6px rgba(0, 0, 0, 0.15); white-space: nowrap;
+}
+.topbar .right .coin-badge svg, .coin-badge svg { width: 15px; height: 15px; }
+html.night .campaign-seg { background: linear-gradient(180deg, #3d4263, #2f3350); box-shadow: 0 5px 0 #1a1d31, 0 9px 16px rgba(0, 0, 0, 0.3); }
+html.night .campaign-opt { color: #b8b2d6; }
+html.night .coin-badge { background: #4a4268; color: #ffe08a; box-shadow: 0 2px 0 #1a1d31; }
+@media (max-width: 440px) {
+  .topbar .right { gap: 8px; }
+  .topbar .right .round { width: 46px; height: 46px; border-radius: 15px; }
+  .topbar .right .round svg { width: 26px; height: 26px; }
+  .campaign-seg { padding: 4px; gap: 3px; border-radius: 19px; }
+  .campaign-opt { height: 38px; padding: 0 10px 0 7px; gap: 4px; font-size: 15px; border-radius: 15px; }
+  .campaign-opt svg { width: 20px; height: 20px; }
+}
+@media (max-width: 370px) {
+  .campaign-opt svg { display: none; }
+  .campaign-opt { padding: 0 11px; }
+}
 
 /* ------------------------------------------------------------------ map */
 .map { position: absolute; inset: 0; overflow: hidden; background: #86c45b; isolation: isolate; }

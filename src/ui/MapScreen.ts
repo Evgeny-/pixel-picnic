@@ -95,11 +95,6 @@ export class MapScreen {
       audio.play('button');
       cb.onShop();
     };
-    const coins = this.coinsButton = h('button', {
-      class: 'pill coin-shop', html: emoji('coin', 34),
-      attrs: { type: 'button', title: t('shop'), 'aria-label': t('shop'), 'aria-haspopup': 'dialog' },
-    }, this.coinsEl);
-    coins.addEventListener('click', openShop);
     const album = h('button', { class: 'btn round white', html: emoji('framed-picture', 30), attrs: { 'aria-label': t('album') } });
     album.addEventListener('click', () => {
       audio.unlock();
@@ -118,14 +113,17 @@ export class MapScreen {
       audio.play('button');
       cb.onDebug();
     });
-    const shop = h('button', { class: 'btn round white', html: emoji('shopping-bags', 30), attrs: { 'aria-label': t('shop') } });
+    // The balance sits on the shop button: that is where coins are spent.
+    const shop = this.coinsButton = h('button', {
+      class: 'btn round white shop-coins', html: emoji('shopping-bags', 30),
+      attrs: { type: 'button', 'aria-label': t('shop'), 'aria-haspopup': 'dialog' },
+    }, h('span', { class: 'coin-badge', html: emoji('coin', 16) }, this.coinsEl)) as HTMLButtonElement;
     shop.addEventListener('click', openShop);
-    const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, this.debugBtn, shop, album, settings));
     // Both level sets stay visible; the active one is highlighted, tapping the other switches.
     const option = (id: 'illustrated' | 'classic') => {
       const b = h('button', {
         class: 'campaign-opt',
-        html: `${emoji(id === 'illustrated' ? 'sparkles' : 'framed-picture', 22)}<span>${t(id === 'illustrated' ? 'campaignToNew' : 'campaignToClassic')}</span>`,
+        html: `${emoji(id === 'illustrated' ? 'sparkles' : 'framed-picture', 24)}<span>${t(id === 'illustrated' ? 'campaignNewShort' : 'campaignToClassic')}</span>`,
         attrs: { type: 'button', role: 'radio', 'aria-checked': 'false' },
       }) as HTMLButtonElement;
       b.addEventListener('click', () => {
@@ -139,9 +137,11 @@ export class MapScreen {
     this.campaignOpts = { illustrated: option('illustrated'), classic: option('classic') };
     this.campaignSeg = h('div', { class: 'campaign-seg', attrs: { role: 'radiogroup', 'aria-label': t('campaignPick') } },
       this.campaignOpts.illustrated, this.campaignOpts.classic);
+    const top = h('div', { class: 'topbar' }, this.campaignSeg, h('div', { class: 'right' }, this.debugBtn, shop, album, settings));
+
     this.playBtn = button('', 'big green', () => this.cb.onPlay(this.data.unlocked));
     const dock = h('div', { class: 'play-dock' }, this.playBtn);
-    this.el.append(this.scroll, top, this.campaignSeg, dock);
+    this.el.append(this.scroll, top, dock);
     root.append(this.el);
   }
 

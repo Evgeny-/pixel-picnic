@@ -20,6 +20,7 @@ const STRINGS = {
   campaignToNew: { ru: 'Новые уровни', en: 'New levels' },
   campaignToClassic: { ru: 'Классика', en: 'Classic' },
   campaignPick: { ru: 'Набор уровней', en: 'Level set' },
+  campaignNewShort: { ru: 'Новые', en: 'New' },
   promoTitle: { ru: 'Новые уровни!', en: 'New levels!' },
   promoText: {
     ru: '280 новых уровней с нарисованными сценами: лягушки, драконы, маяки и панды. Прогресс в классических уровнях сохранится — вернуться можно в любой момент кнопкой на карте.',
