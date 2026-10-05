@@ -73,7 +73,8 @@ export class MapScreen {
   private scroll: HTMLElement;
   private inner: HTMLElement;
   private coinsEl: HTMLElement;
-  private campaignBtn: HTMLElement;
+  private campaignSeg: HTMLElement;
+  private campaignOpts: Record<'illustrated' | 'classic', HTMLButtonElement>;
   private coinsButton: HTMLButtonElement;
   private playBtn: HTMLButtonElement;
   private debugBtn: HTMLButtonElement;
@@ -120,15 +121,27 @@ export class MapScreen {
     const shop = h('button', { class: 'btn round white', html: emoji('shopping-bags', 30), attrs: { 'aria-label': t('shop') } });
     shop.addEventListener('click', openShop);
     const top = h('div', { class: 'topbar' }, coins, h('div', { class: 'right' }, this.debugBtn, shop, album, settings));
-    this.campaignBtn = h('button', { class: 'pill campaign-switch', attrs: { type: 'button' } });
-    this.campaignBtn.addEventListener('click', () => {
-      audio.unlock();
-      audio.play('button');
-      cb.onCampaign();
-    });
+    // Both level sets stay visible; the active one is highlighted, tapping the other switches.
+    const option = (id: 'illustrated' | 'classic') => {
+      const b = h('button', {
+        class: 'campaign-opt',
+        html: `${emoji(id === 'illustrated' ? 'sparkles' : 'framed-picture', 22)}<span>${t(id === 'illustrated' ? 'campaignToNew' : 'campaignToClassic')}</span>`,
+        attrs: { type: 'button', role: 'radio', 'aria-checked': 'false' },
+      }) as HTMLButtonElement;
+      b.addEventListener('click', () => {
+        if (b.getAttribute('aria-checked') === 'true') return;
+        audio.unlock();
+        audio.play('button');
+        cb.onCampaign();
+      });
+      return b;
+    };
+    this.campaignOpts = { illustrated: option('illustrated'), classic: option('classic') };
+    this.campaignSeg = h('div', { class: 'campaign-seg', attrs: { role: 'radiogroup', 'aria-label': t('campaignPick') } },
+      this.campaignOpts.illustrated, this.campaignOpts.classic);
     this.playBtn = button('', 'big green', () => this.cb.onPlay(this.data.unlocked));
     const dock = h('div', { class: 'play-dock' }, this.playBtn);
-    this.el.append(this.scroll, top, this.campaignBtn, dock);
+    this.el.append(this.scroll, top, this.campaignSeg, dock);
     root.append(this.el);
   }
 
@@ -144,10 +157,9 @@ export class MapScreen {
 
   show(data: MapData): void {
     this.data = data;
-    const toNew = data.campaign === 'classic';
-    this.campaignBtn.classList.toggle('to-new', toNew);
-    this.campaignBtn.innerHTML = `${emoji(toNew ? 'sparkles' : 'framed-picture', 26)}<span>${t(toNew ? 'campaignToNew' : 'campaignToClassic')}</span>`;
-    this.campaignBtn.setAttribute('aria-label', t(toNew ? 'campaignToNew' : 'campaignToClassic'));
+    for (const id of ['illustrated', 'classic'] as const) {
+      this.campaignOpts[id].setAttribute('aria-checked', String(data.campaign === id));
+    }
     this.el.classList.remove('hidden');
     this.render();
   }

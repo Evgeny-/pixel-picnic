@@ -369,12 +369,20 @@ button { font-family: var(--font); cursor: pointer; }
 .coin-shop:active { transform: translateY(2px); }
 .coin-shop:focus-visible { outline: 3px solid var(--purple); outline-offset: 3px; }
 .topbar .right { display: flex; gap: 10px; }
-.campaign-switch {
+.campaign-seg {
   position: absolute; z-index: 5; left: 12px; top: calc(66px + var(--safe-top));
-  height: 38px; padding: 0 14px 0 8px; font-size: 15px; border: 0; cursor: pointer;
+  display: flex; gap: 3px; padding: 4px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92); box-shadow: 0 4px 0 rgba(0, 0, 0, 0.14), 0 6px 14px rgba(0, 0, 0, 0.12);
 }
-.campaign-switch.to-new { background: linear-gradient(135deg, #fff6c9, #ffd9f0); color: #7a3cb8; }
-.campaign-switch:active { transform: translateY(2px); }
+.campaign-opt {
+  display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px 0 8px;
+  border: 0; border-radius: 999px; background: transparent; color: #8a8178;
+  font: inherit; font-weight: 900; font-size: 14px; cursor: pointer;
+}
+.campaign-opt[aria-checked='false'] svg, .campaign-opt[aria-checked='false'] img { opacity: 0.55; filter: grayscale(0.6); }
+.campaign-opt[aria-checked='true'] { background: #7a3cb8; color: #fff; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18); cursor: default; }
+.campaign-opt[aria-checked='false']:active { transform: translateY(1px); }
+.campaign-opt:focus-visible { outline: 3px solid #ffd54a; outline-offset: 2px; }
 
 /* ------------------------------------------------------------------ map */
 .map { position: absolute; inset: 0; overflow: hidden; background: #86c45b; isolation: isolate; }
