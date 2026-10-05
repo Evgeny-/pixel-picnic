@@ -59,6 +59,56 @@ interface Variant {
   decor: boolean;
 }
 
+/** Pastel grounds for scenes drawn on plain white or grey (the AI's default for simple subjects). */
+const TINTS = ['#9fd8ff', '#b8f0c8', '#ffd8b0', '#e3cdfd', '#fff0a0', '#ffc8dc', '#c8f0f0', '#d8f5a8', '#f8d0a0', '#c0d8ff'];
+
+/** The plain background: cells of the most common border color connected to the border. */
+function backgroundRegion(p: PictureDef): { bg: number; mask: Uint8Array; area: number } {
+  const cells = decodeCells(p);
+  const { w, h } = p;
+  const border = new Array(p.palette.length).fill(0);
+  for (let x = 0; x < w; x++) { border[cells[x]]++; border[cells[(h - 1) * w + x]]++; }
+  for (let y = 0; y < h; y++) { border[cells[y * w]]++; border[cells[y * w + w - 1]]++; }
+  const bg = border.indexOf(Math.max(...border));
+  const mask = new Uint8Array(w * h);
+  const stack: number[] = [];
+  for (let i = 0; i < w * h; i++) {
+    const x = i % w, y = (i - x) / w;
+    if ((x === 0 || y === 0 || x === w - 1 || y === h - 1) && cells[i] === bg) { mask[i] = 1; stack.push(i); }
+  }
+  while (stack.length) {
+    const i = stack.pop()!;
+    const x = i % w, y = (i - x) / w;
+    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+      const j = ny * w + nx;
+      if (nx >= 0 && ny >= 0 && nx < w && ny < h && !mask[j] && cells[j] === bg) { mask[j] = 1; stack.push(j); }
+    }
+  }
+  return { bg, mask, area: mask.reduce((a, v) => a + v, 0) };
+}
+
+/**
+ * A plain white or grey background becomes a pastel (different from level to level), so the
+ * early pictures don't all sit on the same white. Only the outside region changes: white parts
+ * of the subject itself stay white.
+ */
+function tinted(p: PictureDef, n: number): PictureDef {
+  const { bg, mask, area } = backgroundRegion(p);
+  if (area < p.w * p.h * 0.2) return p;
+  const [L, A, B] = colorOklab(p.palette[bg]);
+  if (Math.hypot(A, B) > 0.03 || L < 0.7) return p;
+  const others = p.palette.filter((_, i) => i !== bg);
+  for (let k = 0; k < TINTS.length; k++) {
+    const tint = TINTS[(n * 7 + k) % TINTS.length];
+    if (!others.every((q) => pairReadability(tint, q) >= READABLE)) continue;
+    const cells = decodeCells(p);
+    const palette = [...p.palette, tint];
+    const out = Int16Array.from(cells, (c, i) => (mask[i] ? palette.length - 1 : c));
+    return separate({ id: p.id, w: p.w, h: p.h, palette, cells: encodeCells(out) });
+  }
+  return p;
+}
+
 const DECOR_COLORS = ['#ffffff', '#fff4c2', '#d6ecff', '#ffd6e8', '#e3f7d0', '#2b2b44', '#5a3d2b'];
 
 /**
@@ -215,7 +265,7 @@ function buildBest(n: number, cands: Prepared[]): Built | null {
     let mine: Built | null = null;
     const tried = new Set<string>();
     // Paintings stay as painted; only generated scenes get background sprinkles.
-    const canDecor = !pic.src.startsWith('fixed/') && decorated(separate(pic), n) !== null;
+    const canDecor = !pic.src.startsWith('fixed/') && decorated(tinted(separate(pic), n), n) !== null;
     let v: Variant | null = start;
     while (v && tried.size < 6) {
       tried.add(key(v));
@@ -241,6 +291,7 @@ function build(n: number, pic: Prepared, variant: Variant): { lv: LevelDef; dist
   const tier = tierForLevel(n);
   const plan = planLevel(n, tier);
   let picture = separate({ id: pic.id, w: pic.w, h: pic.h, palette: pic.palette, cells: pic.cells });
+  if (!pic.src.startsWith('fixed/')) picture = tinted(picture, n);
   if (variant.decor) picture = decorated(picture, n) ?? picture;
   if (variant.frame) picture = framed(picture, variant.frame);
   const pixels = decodeCells(picture).reduce((a, v) => a + (v >= 0 ? 1 : 0), 0);
