@@ -23,8 +23,9 @@ def tier(n):
 def plan(n):
     """Board width and palette limit for level n."""
     w, idx, t = (n - 1) // 20, (n - 1) % 20, tier(n)
-    if n <= 4:
-        return 22 + 2 * n, 5 + (n >= 4)
+    if n <= 10:
+        # Gentle start after the 14x14 tutorial: small boards, few colors.
+        return int(20 + 1.5 * n), 4 + n // 2
     size = 34 + w * 1.4 - (4 if idx < 5 else 0) + {'normal': 0, 'hard': 3, 'superhard': 6}[t]
     colors = 8 + w // 2 + {'normal': 0, 'hard': 1, 'superhard': 2}[t]
     if n <= 20:
@@ -53,14 +54,9 @@ def sources(slot, sel):
 
 
 def convert(path, gw, K):
-    # Simple scenes can collapse to a handful of colors; keep finer shades then (more colors
-    # also make better puzzles).
-    for md in (0.06, 0.045, 0.035):
-        post, pal = posterize(path, K=K, width=640, smooth=0, min_dist=md)
-        g = outline_pass(post, pal, mode_downsample_fx(post, pal, gw, gw, feat_contrast=0.3))
-        if len(g['palette']) >= min(K, max(5, K - 3)):
-            break
-    return g
+    # Clearly different colors only: the level builder merges anything players could confuse.
+    post, pal = posterize(path, K=K, width=640, smooth=0, min_dist=0.09)
+    return outline_pass(post, pal, mode_downsample_fx(post, pal, gw, gw, feat_contrast=0.3))
 
 
 def encode(g):

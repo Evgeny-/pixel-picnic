@@ -11,8 +11,10 @@ import { ensureCritical, generateLevel, objective, tierTarget, tuneLevel } from 
 import { plannerRate } from '../src/core/solver';
 import { buildFences, MECHANIC_LEVEL, planLevel, worldOf, type FenceSpec } from '../src/core/progression';
 import { decodeCells, encodeCells, tierForLevel, type LevelDef, type Localized, type PictureDef } from '../src/core/types';
-import { colorOklab } from '../src/render/palette';
-import { createIntroLevel } from './lib/intro-level';
+import { colorOklab, hexFromLch, pairReadability, PICTURE_READABILITY as READABLE } from '../src/render/palette';
+import { createIllustratedIntro } from './lib/intro-illustrated';
+import { fillBackground } from './lib/pixelart';
+import { Rng } from '../src/core/rng';
 
 const PICTURES = '.cache/art/pictures.json';
 const DIR = '.cache/art/levels';
@@ -31,7 +33,7 @@ function merge(): void {
   const missing: number[] = [];
   for (let n = 1; n <= COUNT; n++) {
     const f = `${DIR}/${n}.json`;
-    if (n === 1) levels.push(createIntroLevel());
+    if (n === 1) levels.push(createIllustratedIntro());
     else if (existsSync(f)) {
       const { cands: _c, src: _s, dist: _d, variant: _v, ...lv } = JSON.parse(readFileSync(f, 'utf8'));
       levels.push(lv);
@@ -52,6 +54,100 @@ interface Variant {
   fences: FenceSpec[];
   /** 0: the scene as drawn; 1: a one-piece border around it; 2: a two-color dashed border. */
   frame: 0 | 1 | 2;
+  slots: 4 | 5;
+  /** Sparkles or dots sprinkled over a plain background. */
+  decor: boolean;
+}
+
+const DECOR_COLORS = ['#ffffff', '#fff4c2', '#d6ecff', '#ffd6e8', '#e3f7d0', '#2b2b44', '#5a3d2b'];
+
+/**
+ * Scenes with a big plain background get a sprinkle pattern in a second color, like the classic
+ * emoji levels: the two background colors interleave, so the outside can no longer be eaten by
+ * any box at all. Returns null when the picture has no large flat background.
+ */
+function decorated(p: PictureDef, seed: number): PictureDef | null {
+  const cells = decodeCells(p);
+  const { w, h } = p;
+  const border = new Array(p.palette.length).fill(0);
+  for (let x = 0; x < w; x++) { border[cells[x]]++; border[cells[(h - 1) * w + x]]++; }
+  for (let y = 0; y < h; y++) { border[cells[y * w]]++; border[cells[y * w + w - 1]]++; }
+  const bg = border.indexOf(Math.max(...border));
+  const mask = new Uint8Array(w * h);
+  const stack: number[] = [];
+  for (let i = 0; i < w * h; i++) {
+    const x = i % w, y = (i - x) / w;
+    if ((x === 0 || y === 0 || x === w - 1 || y === h - 1) && cells[i] === bg) { mask[i] = 1; stack.push(i); }
+  }
+  while (stack.length) {
+    const i = stack.pop()!;
+    const x = i % w, y = (i - x) / w;
+    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+      const j = ny * w + nx;
+      if (nx >= 0 && ny >= 0 && nx < w && ny < h && !mask[j] && cells[j] === bg) { mask[j] = 1; stack.push(j); }
+    }
+  }
+  const area = mask.reduce((a, v) => a + v, 0);
+  if (area < w * h * 0.25) return null;
+  const bgHex = p.palette[bg];
+  const others = p.palette.filter((_, i) => i !== bg);
+  const pat = DECOR_COLORS
+    .filter((c) => pairReadability(c, bgHex) >= READABLE && others.every((q) => pairReadability(c, q) >= READABLE))
+    .sort((a, b) => pairReadability(a, bgHex) - pairReadability(b, bgHex))[0];
+  if (!pat) return null;
+  const grid = { w, h, palette: [...p.palette], cells: Int16Array.from(cells, (c, i) => (mask[i] ? -1 : c)) };
+  const pattern = new Rng(seed).next() < 0.5 ? 'sparkles' : 'dots';
+  const out = fillBackground(grid, { color: bgHex, pattern, patternColor: pat, seed, margin: 0 });
+  return separate({ id: p.id, w: out.w, h: out.h, palette: out.palette, cells: encodeCells(out.cells) });
+}
+
+/** Borders are a last resort; build-illustrated frames hands them out to a limited set of levels. */
+const FRAMES = process.env.FRAMES === '1';
+
+/** Merges colors that players could confuse: the rarer one of the closest pair joins the other. */
+function separate(p: PictureDef): PictureDef {
+  const cells = Int16Array.from(decodeCells(p));
+  const used = () => {
+    const counts = p.palette.map(() => 0);
+    for (const c of cells) if (c >= 0) counts[c]++;
+    return counts;
+  };
+  for (;;) {
+    const counts = used();
+    let worst: [number, number, number] | null = null;
+    for (let a = 0; a < p.palette.length; a++) {
+      if (!counts[a]) continue;
+      for (let b = a + 1; b < p.palette.length; b++) {
+        if (!counts[b]) continue;
+        const r = pairReadability(p.palette[a], p.palette[b]);
+        if (r < READABLE && (!worst || r < worst[2])) worst = [a, b, r];
+      }
+    }
+    if (!worst) break;
+    const [a, b] = worst;
+    const [from, to] = counts[a] < counts[b] ? [a, b] : [b, a];
+    // Like a pixel artist: first try a lighter or darker shade of the rarer color (same hue),
+    // and only merge the two when no shade is clearly different from every other color.
+    const [L, A, B] = colorOklab(p.palette[from]);
+    const away = L >= colorOklab(p.palette[to])[0] ? 1 : -1;
+    let shade: string | null = null;
+    for (let d = 0.04; d <= 0.161 && !shade; d += 0.02) {
+      for (const sign of [away, -away]) {
+        const hex = hexFromLch(Math.min(0.97, Math.max(0.12, L + sign * d)), Math.hypot(A, B), Math.atan2(B, A));
+        if (p.palette.every((q, i) => i === from || !counts[i] || pairReadability(hex, q) >= READABLE)) { shade = hex; break; }
+      }
+    }
+    if (shade) {
+      p = { ...p, palette: p.palette.map((q, i) => (i === from ? shade! : q)) };
+      continue;
+    }
+    for (let i = 0; i < cells.length; i++) if (cells[i] === from) cells[i] = to;
+  }
+  // Drop unused entries, most frequent color first.
+  const counts = used();
+  const order = counts.map((c, i) => [c, i]).filter(([c]) => c > 0).sort((x, y) => y[0] - x[0]).map(([, i]) => i);
+  const remap = new Map(order.map((old, i) => [old, i]));
+  return { id: p.id, w: p.w, h: p.h, palette: order.map((i) => p.palette[i]), cells: encodeCells(cells.map((c) => (c >= 0 ? remap.get(c)! : -1))) };
 }
 
 const FRAME_COLORS = ['#f4ead2', '#5a3d2b', '#ffffff', '#27324a', '#c9dfa8', '#e9b8c8', '#8e6bbf'];
@@ -68,7 +164,10 @@ function framed(p: PictureDef, kind: 1 | 2): PictureDef {
     const c = colorOklab(hex);
     return Math.min(...labs.map((l) => Math.hypot(l[0] - c[0], l[1] - c[1], l[2] - c[2])));
   };
-  const [c1, c2] = [...FRAME_COLORS].sort((a, b) => sep(b) - sep(a));
+  const [c1, c2] = [...FRAME_COLORS]
+    .filter((c) => p.palette.every((q) => pairReadability(c, q) >= READABLE))
+    .sort((a, b) => sep(b) - sep(a));
+  if (!c1 || (kind === 2 && (!c2 || pairReadability(c1, c2) < READABLE))) return p;
   const palette = [...p.palette, c1, ...(kind === 2 ? [c2] : [])];
   const W = p.w + 2;
   const H = p.h + 2;
@@ -82,34 +181,57 @@ function framed(p: PictureDef, kind: 1 | 2): PictureDef {
   return { id: p.id, w: W, h: H, palette, cells: encodeCells(out) };
 }
 
-/** Ways to make a too-easy scene harder, mildest first. Mechanic intro levels keep their fences. */
-function variants(n: number, planFences: FenceSpec[]): Variant[] {
-  const v: Variant[] = [{ fences: planFences, frame: 0 }];
-  if (n < MECHANIC_LEVEL.fence || n === MECHANIC_LEVEL.fence || n === MECHANIC_LEVEL.gate) {
-    v.push({ fences: planFences, frame: 1 }, { fences: planFences, frame: 2 });
-    return v;
-  }
-  const three: FenceSpec[] = [{ side: 'top' }, { side: 'left' }, { side: 'right' }];
-  if (new Set(planFences.map((f) => f.side)).size < 2) v.push({ fences: [{ side: 'top' }, { side: n % 2 ? 'left' : 'right' }], frame: 0 });
-  v.push({ fences: three, frame: 0 }, { fences: three, frame: 1 });
-  return v;
-}
-
 type Built = { lv: LevelDef; pic: Prepared; dist: number; variant: Variant };
+
+const key = (v: Variant) => JSON.stringify([v.fences.map((f) => f.side + (f.gate ?? '')).join(), v.frame, v.slots, v.decor]);
+
+/** Next variant to try after `v` came out too easy or too hard, or null when nothing is left. */
+function nextVariant(n: number, v: Variant, easy: boolean, canDecor: boolean, tried: Set<string>): Variant | null {
+  const fixedFences = n < MECHANIC_LEVEL.fence || n === MECHANIC_LEVEL.fence || n === MECHANIC_LEVEL.gate;
+  const sides = new Set(v.fences.map((f) => f.side));
+  const options: Variant[] = easy
+    ? [
+        { ...v, slots: 4 },
+        { ...v, decor: canDecor },
+        ...(fixedFences ? [] : [
+          { ...v, fences: [{ side: 'top' as const }, { side: (n % 2 ? 'left' : 'right') as 'left' | 'right' }] },
+          { ...v, fences: [{ side: 'top' as const }, { side: 'left' as const }, { side: 'right' as const }] },
+        ].filter((x) => x.fences.length > sides.size)),
+        ...(FRAMES ? [{ ...v, frame: 1 as const }, ...(fixedFences ? [{ ...v, frame: 2 as const }] : [])] : []),
+      ]
+    : [{ ...v, slots: 5 }, { ...v, decor: false }, { ...v, frame: 0 as const }];
+  return options.find((o) => !tried.has(key(o))) ?? null;
+}
 
 /** Candidates in order of preference; the first picture that (nearly) lands on the target wins. */
 function buildBest(n: number, cands: Prepared[]): Built | null {
   let best: Built | null = null;
-  const planFences = planLevel(n, tierForLevel(n)).fences;
+  const tier = tierForLevel(n);
+  const plan = planLevel(n, tier);
+  const target = tierTarget(tier, n);
+  // Variety: from level 12 every fourth level starts with five slots (and a nastier queue).
+  const start: Variant = { fences: plan.fences, frame: 0, slots: n <= 2 || (n >= 12 && n % 4 === 3) ? 5 : 4, decor: false };
   for (const pic of cands.slice(0, 4)) {
     let mine: Built | null = null;
-    for (const variant of variants(n, planFences)) {
-      const r = build(n, pic, variant);
-      if (r && (!mine || r.dist < mine.dist - 1e-9)) mine = { lv: r.lv, pic, dist: r.dist, variant };
-      if (mine && mine.dist === 0) break;
+    const tried = new Set<string>();
+    // Paintings stay as painted; only generated scenes get background sprinkles.
+    const canDecor = !pic.src.startsWith('fixed/') && decorated(separate(pic), n) !== null;
+    let v: Variant | null = start;
+    while (v && tried.size < 6) {
+      tried.add(key(v));
+      const r = build(n, pic, v);
+      if (!r) {
+        // The generator found no queue at all: loosen up (a fifth slot first).
+        v = nextVariant(n, v, false, canDecor, tried);
+        continue;
+      }
+      if (!mine || r.dist < mine.dist - 1e-9) mine = { lv: r.lv, pic, dist: r.dist, variant: v };
+      if (r.dist === 0) break;
+      const st = r.lv.stats!;
+      const easy = st.casual > target.casual[1] || (st.random ?? 0) > (target.random?.[1] ?? 1) || (st.planner ?? 0) > (target.planner?.[1] ?? 1);
+      v = nextVariant(n, v, easy, canDecor, tried);
     }
     if (mine && (!best || mine.dist < best.dist - 1e-9)) best = mine;
-    // Keep the preferred artwork when it is close enough.
     if (best && best.dist <= 0.05) break;
   }
   return best;
@@ -118,8 +240,9 @@ function buildBest(n: number, cands: Prepared[]): Built | null {
 function build(n: number, pic: Prepared, variant: Variant): { lv: LevelDef; dist: number } | null {
   const tier = tierForLevel(n);
   const plan = planLevel(n, tier);
-  const plain: PictureDef = { id: pic.id, w: pic.w, h: pic.h, palette: pic.palette, cells: pic.cells };
-  const picture = variant.frame ? framed(plain, variant.frame) : plain;
+  let picture = separate({ id: pic.id, w: pic.w, h: pic.h, palette: pic.palette, cells: pic.cells });
+  if (variant.decor) picture = decorated(picture, n) ?? picture;
+  if (variant.frame) picture = framed(picture, variant.frame);
   const pixels = decodeCells(picture).reduce((a, v) => a + (v >= 0 ? 1 : 0), 0);
   // Bigger pictures get bigger boxes instead of an endless queue.
   const base = tierTarget(tier, n);
@@ -128,6 +251,7 @@ function build(n: number, pic: Prepared, variant: Variant): { lv: LevelDef; dist
   const k = pixels / (plan.gridSize * plan.gridSize);
   const params = {
     ...plan.params,
+    slots: variant.slots,
     fences: buildFences(variant.fences, picture.w, picture.h, n),
     boxMin: Math.min(Math.round(maxBox * 0.6), Math.max(3, Math.round(plan.params.boxMin * k))),
     boxMax: Math.min(maxBox, Math.max(6, Math.round(plan.params.boxMax * k))),
@@ -169,9 +293,32 @@ function build(n: number, pic: Prepared, variant: Variant): { lv: LevelDef; dist
   return { lv, dist };
 }
 
+/** Picks the levels that may get a border: the furthest from their target, at most a fifth of all. */
+function frameCandidates(): number[] {
+  const built: { n: number; dist: number }[] = [];
+  for (let n = 2; n <= COUNT; n++) {
+    const f = `${DIR}/${n}.json`;
+    if (existsSync(f)) built.push({ n, dist: JSON.parse(readFileSync(f, 'utf8')).dist ?? 0 });
+  }
+  const budget = Math.floor(COUNT * 0.2);
+  const perWorld = new Map<number, number>();
+  const out: number[] = [];
+  for (const { n } of built.filter((b) => b.dist > 0.1).sort((a, b) => b.dist - a.dist)) {
+    const w = worldOf(n);
+    const cap = n <= 10 ? 3 : 5;
+    const used = n <= 10 ? out.filter((x) => x <= 10).length : perWorld.get(w) ?? 0;
+    if (used >= cap || out.length >= budget) continue;
+    out.push(n);
+    perWorld.set(w, (perWorld.get(w) ?? 0) + 1);
+  }
+  return out.sort((a, b) => a - b);
+}
+
 const arg = process.argv[2] ?? `2-${COUNT}`;
 if (arg === 'merge') {
   merge();
+} else if (arg === 'frames') {
+  console.log(frameCandidates().join(' '));
 } else {
   const [a, b] = arg.split('-').map(Number);
   const pics = new Map<number, Prepared[]>();
@@ -200,6 +347,6 @@ if (arg === 'merge') {
     const st = lv.stats!;
     console.log(`#${String(n).padStart(3)} ${lv.tier.padEnd(9)} ${pic.id.padEnd(22)} ${lv.picture.w}x${lv.picture.h} px=${st.pixels} col=${st.colors} boxes=${st.boxes} ` +
       `max=${Math.max(...lv.boxes.map((x) => x.count))} rnd=${st.random!.toFixed(2)} cas=${st.casual.toFixed(2)} plan=${st.planner!.toFixed(2)} crit=${st.critical} ` +
-      `${pic.src} f${best.variant.fences.length}${best.variant.frame ? ' frame' + best.variant.frame : ''} ${best.dist === 0 ? 'ok' : 'OFF ' + best.dist.toFixed(2)} ${((performance.now() - t0) / 1000).toFixed(0)}s`);
+      `${pic.src} f${best.variant.fences.length} s${best.variant.slots}${best.variant.decor ? ' decor' : ''}${best.variant.frame ? ' frame' + best.variant.frame : ''} ${best.dist === 0 ? 'ok' : 'OFF ' + best.dist.toFixed(2)} ${((performance.now() - t0) / 1000).toFixed(0)}s`);
   }
 }

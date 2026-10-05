@@ -129,7 +129,10 @@ For frame-time diagnostics and geometry budgets, see [Performance checks](docs/p
   (`scripts/art/generate.py`, prompts in `scripts/art/scenes.py`), then converted to the board
   by `scripts/art/pixelart.py`: an OKLab palette from the flat areas of the image, majority
   vote per cell on a finer sub-grid, small high-contrast details (eyes, buttons, stars) put back,
-  and thin dark strokes redrawn as continuous one-piece outlines.
+  and thin dark strokes redrawn as continuous one-piece outlines. Colors that players could confuse
+  are merged (every pair stays at least 1.25× the in-game readability gap). Too-easy scenes first
+  get extra fences; a one-piece border around the picture is the last resort, used on at most a
+  fifth of the levels. Level 1 is an authored three-color strawberry tutorial.
 - **Classic pictures** — 466 candidate emoji from three open sets (Fluent, Twemoji and Noto, whose
   detailed scenes — cities at night, mountains, lighthouses, castles, fairgrounds — make the
   hardest levels), rasterized, reduced to 3–10 clean colors with k‑means in OKLab, cleaned of stray

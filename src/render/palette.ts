@@ -80,10 +80,18 @@ export function paletteDistances(colors: readonly string[]): number[] {
   }
   return minimum;
 }
+/** Generated pictures keep every pair of colors at least this far apart (see pairReadability). */
+export const PICTURE_READABILITY = 1.25;
+/** Gap between two colors relative to the readability targets: 1 means just readable in every model. */
+export function pairReadability(a: string, b: string): number {
+  const pa = profile(a);
+  const pb = profile(b);
+  return Math.min(...PALETTE_DISTANCE_TARGETS.map((target, i) => distance(pa[i], pb[i]) / target));
+}
 export function paletteSeparation(colors: readonly string[]): number {
   return Math.min(...paletteDistances(colors));
 }
-function hexFromLch(L: number, C: number, h: number): string {
+export function hexFromLch(L: number, C: number, h: number): string {
   // Preserve hue when crossing the sRGB gamut by reducing chroma, never clipping
   // individual channels into an unrelated hue.
   let color = unlab([L, C * Math.cos(h), C * Math.sin(h)]);
