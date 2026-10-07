@@ -17,6 +17,9 @@ const MAX_ANTS = 700;
 const REACH_DURATION = 0.18;
 const LIFT_DURATION = 0.24;
 const PICKUP_TILT = 0.1;
+/** Upright little people cover far less ground than the four-legged crew, so they walk taller. */
+const CREATURE_SIZE: Partial<Record<CreatureId, number>> = { human: 1.8 };
+
 const ease = (value: number): number => {
   const t = Math.max(0, Math.min(1, value));
   return t * t * (3 - 2 * t);
@@ -180,7 +183,7 @@ export class AntsView {
 
   setLayout(l: Layout): void {
     this.layout = l;
-    this.antSize = Math.max(0.46, Math.min(0.74, l.cell * 1.9));
+    this.antSize = Math.max(0.46, Math.min(0.74, l.cell * 1.9)) * (CREATURE_SIZE[this.creature] ?? 1);
     const pad = l.cell * 0.35;
     const ix0 = l.picX0 - pad;
     const iz0 = l.picZ0 - pad;
