@@ -17,8 +17,11 @@ const MAX_ANTS = 700;
 const REACH_DURATION = 0.18;
 const LIFT_DURATION = 0.24;
 const PICKUP_TILT = 0.1;
-/** Upright little people cover far less ground than the four-legged crew, so they walk taller. */
-const CREATURE_SIZE: Partial<Record<CreatureId, number>> = { human: 1.8 };
+/**
+ * Slim companions cover less ground than a beaver in the overhead view, and upright little people
+ * far less, so they walk larger. Ants keep 1: their spread legs already read at full size.
+ */
+const CREATURE_SIZE: Partial<Record<CreatureId, number>> = { dog: 1.2, mouse: 1.15, fox: 1.15, rabbit: 1.2, human: 1.8 };
 
 const ease = (value: number): number => {
   const t = Math.max(0, Math.min(1, value));
