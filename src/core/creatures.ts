@@ -15,7 +15,7 @@ export interface CreatureDef {
 export const CREATURES: readonly CreatureDef[] = [
   { id: 'ant', name: { ru: 'Муравьи', en: 'Ants' }, color: '#df6336', price: 0 },
   { id: 'beaver', name: { ru: 'Бобры', en: 'Beavers' }, color: '#ad774b', price: 0 },
-  { id: 'dog', name: { ru: 'Собачки', en: 'Dogs' }, color: '#e9ae60', price: 0 },
+  { id: 'dog', name: { ru: 'Собачки', en: 'Dogs' }, color: '#f8f1e7', price: 0 },
   { id: 'mouse', name: { ru: 'Мышки', en: 'Mice' }, color: '#a59cb7', price: 0 },
   { id: 'fox', name: { ru: 'Лисички', en: 'Foxes' }, color: '#e77a38', price: 900 },
   { id: 'rabbit', name: { ru: 'Кролики', en: 'Rabbits' }, color: '#c5afbc', price: 1200 },

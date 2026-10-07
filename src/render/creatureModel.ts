@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hatGeometry, type HatId } from './hats';
-import { CREATURES, type CreatureId } from '../core/creatures';
+import type { CreatureId } from '../core/creatures';
 
 export const LEGS = 6;
 export const HIP_Z = [0.15, 0.07, -0.01];
@@ -28,6 +28,8 @@ export interface CreatureRig {
   legPoses: LegPose[];
   /** Optional transform from the shared accessory anchor into this creature's frame. */
   hatMatrix?: THREE.Matrix4;
+  /** Paw colour when it should not be a darker shade of the coat, like a spaniel's white socks. */
+  legColor?: string;
 }
 
 /** Merge newly created parts and release the intermediate geometries. */
@@ -61,13 +63,12 @@ function tube(points: number[][], radius: number): THREE.BufferGeometry {
   return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(([x, y, z]) => new THREE.Vector3(x, y, z))), 8, radius, 4, false);
 }
 
-/** One continuous skin from rump to face, with no ant-like waist between body and head. */
-function mammalBody(id: CreatureId): THREE.BufferGeometry {
+/** Cross-sections of the mammal body: z, horizontal radius, vertical radius, centre height. */
+function mammalRings(id: CreatureId): number[][] {
   const stout = id === 'beaver';
   const rabbit = id === 'rabbit';
   const slim = id === 'fox' || id === 'dog';
-  // z, horizontal radius, vertical radius, centre height
-  const rings = [
+  return [
     [-0.52, 0, 0, 0.25],
     [-0.44, stout ? 0.185 : 0.153, 0.16, 0.265],
     [-0.3, stout ? 0.28 : rabbit ? 0.263 : slim ? 0.21 : 0.235, stout ? 0.247 : 0.215, 0.28],
@@ -78,6 +79,11 @@ function mammalBody(id: CreatureId): THREE.BufferGeometry {
     [0.49, stout ? 0.095 : 0.08, 0.083, 0.325],
     [0.535, 0, 0, 0.325],
   ];
+}
+
+/** One continuous skin from rump to face, with no ant-like waist between body and head. */
+function mammalBody(id: CreatureId): THREE.BufferGeometry {
+  const rings = mammalRings(id);
   const segments = 12;
   const positions: number[] = [], indices: number[] = [];
   for (const [z, rx, ry, cy] of rings) {
@@ -92,6 +98,54 @@ function mammalBody(id: CreatureId): THREE.BufferGeometry {
       const b = a + segments, d = c + segments;
       if (row > 0) indices.push(a, c, b);
       if (row < rings.length - 2) indices.push(c, d, b);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(positions.length / 3 * 2), 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * A coat marking that hugs the body just above its skin. Each row is [z, from, to]: the arc of the
+ * cross-section it covers, in radians (0 = right flank, π/2 = spine). Rows are blended in between,
+ * so a few rows give a soft, irregular patch with crisp edges.
+ */
+function coatPatch(id: CreatureId, rows: number[][], lift = 1.035): THREE.BufferGeometry {
+  const rings = mammalRings(id);
+  const ringAt = (z: number) => {
+    let i = 0;
+    while (i < rings.length - 2 && rings[i + 1][0] < z) i++;
+    const [z0, ...a] = rings[i], [z1, ...b] = rings[i + 1];
+    const t = Math.max(0, Math.min(1, (z - z0) / (z1 - z0)));
+    return a.map((v, k) => v + (b[k] - v) * t);
+  };
+  // Sample between the given rows and at every bend of the body, so the skin never pokes through.
+  const zs = new Set<number>();
+  for (let r = 0; r < rows.length - 1; r++) zs.add(rows[r][0]).add((rows[r][0] + rows[r + 1][0]) / 2);
+  zs.add(rows[rows.length - 1][0]);
+  for (const [z] of rings) if (z > rows[0][0] && z < rows[rows.length - 1][0]) zs.add(z);
+  const fine = [...zs].sort((a, b) => a - b).map((z) => {
+    let r = 0;
+    while (r < rows.length - 2 && rows[r + 1][0] < z) r++;
+    const t = (z - rows[r][0]) / (rows[r + 1][0] - rows[r][0]);
+    return [z, rows[r][1] + (rows[r + 1][1] - rows[r][1]) * t, rows[r][2] + (rows[r + 1][2] - rows[r][2]) * t];
+  });
+  const arc = 6;
+  const positions: number[] = [], indices: number[] = [];
+  for (const [z, from, to] of fine) {
+    const [rx, ry, cy] = ringAt(z);
+    for (let k = 0; k <= arc; k++) {
+      const angle = from + (to - from) * k / arc;
+      positions.push(Math.cos(angle) * rx * lift, cy + Math.sin(angle) * ry * lift, z);
+    }
+  }
+  for (let row = 0; row < fine.length - 1; row++) {
+    for (let k = 0; k < arc; k++) {
+      const a = row * (arc + 1) + k, c = a + 1, b = a + arc + 1, d = b + 1;
+      indices.push(a, c, b, c, d, b);
     }
   }
   const geometry = new THREE.BufferGeometry();
@@ -254,20 +308,41 @@ export function createCreatureRig(id: CreatureId): CreatureRig {
     }
     accent(ellipsoid(0.075, 0.045, 0.043, 0, 0.329, 0.57), '#4f392f');
   } else if (id === 'dog') {
-    // Long floppy ears, a cream muzzle, and a lifted tail distinguish the puppy at a glance.
+    // A Blenheim Cavalier King Charles spaniel: pearly white with chestnut patches, long wavy
+    // chestnut ears, a white blaze with the chestnut "Blenheim spot" on top, and a plumed tail.
+    const chestnut = '#a9572e', curl = '#c06c3c', white = '#fffaf3';
+    // Chestnut mask over both sides of the head; the white blaze widens toward the nose.
+    accent(coatPatch(id, [[0.17, -0.5, 1.33], [0.3, -0.7, 1.38], [0.42, -0.6, 1.2], [0.48, -0.2, 0.95]]), chestnut);
+    accent(coatPatch(id, [[0.17, 1.81, 3.64], [0.3, 1.76, 3.84], [0.42, 1.94, 3.74], [0.48, 2.19, 3.34]]), chestnut);
+    accent(coatPatch(id, [[0.2, 1.48, 1.66], [0.25, 1.42, 1.72], [0.3, 1.5, 1.64]], 1.05), chestnut);
+    // An irregular saddle on the back and a small spot on the hip.
+    accent(coatPatch(id, [[-0.37, 1.05, 1.95], [-0.29, 0.6, 2.45], [-0.18, 0.4, 2.7], [-0.06, 0.55, 2.35], [0.02, 1.0, 1.75]]), chestnut);
+    accent(coatPatch(id, [[-0.45, 2.55, 2.9], [-0.4, 2.35, 3.2], [-0.33, 2.5, 3.05]]), chestnut);
     for (const side of [-1, 1]) {
-      const ear = ellipsoid(0.093, 0.19, 0.095, 0, 0, 0);
-      ear.rotateZ(side * 0.25);
-      ear.translate(side * 0.235, 0.345, 0.205);
-      accent(ear, '#805334');
+      // Set high and hanging past the jaw, the feathered ends falling in two soft waves.
+      accent(ellipsoid(0.08, 0.085, 0.1, side * 0.175, 0.47, 0.235, 6, 4), chestnut);
+      const ear = ellipsoid(0.075, 0.19, 0.12, 0, 0, 0);
+      ear.rotateZ(side * 0.18);
+      ear.translate(side * 0.24, 0.32, 0.235);
+      accent(ear, chestnut);
+      for (const [y, z] of [[0.165, 0.19], [0.155, 0.285]]) {
+        accent(ellipsoid(0.066, 0.072, 0.07, side * 0.272, y, z, 6, 4), curl);
+      }
     }
-    accent(ellipsoid(0.147, 0.106, 0.115, 0, 0.245, 0.465), muzzle);
-    accent(ellipsoid(0.074, 0.052, 0.039, 0, 0.3, 0.564), '#342431');
-    accent(ellipsoid(0.033, 0.044, 0.02, 0.045, 0.162, 0.543), '#ed8a9b');
-    tailPivot = { x: 0, y: 0.3, z: -0.38 };
-    tailAccent(tube([[0, 0.3, -0.38], [0, 0.4, -0.55], [0.06, 0.55, -0.61]], 0.06),
-      CREATURES.find((creature) => creature.id === id)!.color);
-    tailAccent(ellipsoid(0.067, 0.072, 0.067, 0.06, 0.55, -0.61), muzzle);
+    accent(ellipsoid(0.14, 0.1, 0.112, 0, 0.25, 0.468), white);
+    accent(ellipsoid(0.064, 0.047, 0.037, 0, 0.3, 0.568), '#2b1f26');
+    accent(ellipsoid(0.033, 0.044, 0.02, 0.045, 0.162, 0.543, 6, 4), '#ed8a9b');
+    // A happy, feathered tail: a short chestnut root and a white plume with a fringe below.
+    tailPivot = { x: 0, y: 0.33, z: -0.4 };
+    tailAccent(tube([[0, 0.31, -0.4], [0, 0.36, -0.49], [0, 0.42, -0.54]], 0.05), chestnut);
+    const plume = ellipsoid(0.075, 0.085, 0.22, 0, 0, 0);
+    plume.rotateX(0.5);
+    plume.translate(0, 0.5, -0.62);
+    tailAccent(plume, white);
+    const fringe = ellipsoid(0.055, 0.075, 0.19, 0, 0, 0, 6, 4);
+    fringe.rotateX(0.62);
+    fringe.translate(0, 0.43, -0.65);
+    tailAccent(fringe, '#f3e7d8');
   } else if (id === 'mouse') {
     // Large ears have thick pink centres, and the tail curls to one side in the ground plane.
     for (const side of [-1, 1]) {
@@ -344,7 +419,8 @@ export function createCreatureRig(id: CreatureId): CreatureRig {
   const tail = tailParts.length ? {
     geometry: join(tailParts).translate(-tailPivot.x, -tailPivot.y, -tailPivot.z), pivot: tailPivot,
   } : undefined;
-  return { body: join(body), eyes, pupils, legs: leg, details: join(details), legPoses, tail };
+  return { body: join(body), eyes, pupils, legs: leg, details: join(details), legPoses, tail,
+    legColor: id === 'dog' ? '#f4ebdf' : undefined };
 }
 
 /** An ordinary-mesh version of the gameplay rig for selectors and shop previews. */
@@ -366,7 +442,7 @@ export function creatureModel(id: CreatureId, color: string, hat: HatId = 'none'
     tail.position.set(rig.tail.pivot.x, rig.tail.pivot.y, rig.tail.pivot.z);
     g.add(tail);
   }
-  const legMat = new THREE.MeshStandardMaterial({ color: legColor, ...surface, roughness: ant ? 0.5 : 0.96 });
+  const legMat = new THREE.MeshStandardMaterial({ color: rig.legColor ?? legColor, ...surface, roughness: ant ? 0.5 : 0.96 });
   for (const pose of rig.legPoses) {
     const leg = new THREE.Mesh(rig.legs, legMat);
     leg.position.set(pose.x, pose.y, pose.z);

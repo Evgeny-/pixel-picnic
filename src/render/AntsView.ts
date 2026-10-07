@@ -122,6 +122,7 @@ export class AntsView {
     const naturalColor = CREATURES.find((item) => item.id === creature)!.color;
     this.palette = palette.map((c) => new THREE.Color(creature === 'ant' ? c : naturalColor));
     this.legColors = this.palette.map((c) => {
+      if (this.rig.legColor) return new THREE.Color(this.rig.legColor);
       const hsl = { h: 0, s: 0, l: 0 };
       c.getHSL(hsl);
       return new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.9), Math.max(0.03, hsl.l * (creature === 'ant' ? 0.45 : 0.75)));
